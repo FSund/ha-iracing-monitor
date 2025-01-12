@@ -4,19 +4,6 @@ use yaml_rust::{Yaml, YamlEmitter};
 use std::fs::File;
 use std::io::Write;
 
-fn write_yaml_to_file(yaml: &Yaml, path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let mut out_str = String::new();
-    {
-        let mut emitter = YamlEmitter::new(&mut out_str);
-        emitter.dump(yaml)?;
-    }
-    
-    let mut file = File::create(path)?;
-    file.write_all(out_str.as_bytes())?;
-    
-    Ok(())
-}
-
 fn get_current_session_type(session_info: &Yaml, session_num: i32) -> Option<String> {
     // Navigate through the YAML structure to get Sessions array
     if let Some(sessions) = session_info["SessionInfo"]["Sessions"].as_vec() {

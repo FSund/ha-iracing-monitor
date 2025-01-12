@@ -2,17 +2,20 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
 // use iracing::{Client, Session, SessionFlags, SessionState};
+// use simetry::iracing::Client;
+use simetry::iracing;
 use rumqttc::{AsyncClient, MqttOptions, QoS};
 use serde::Serialize;
 use std::time::Duration;
 use tokio::time;
+use yaml_rust::Yaml;
 
 #[derive(Debug, Serialize, Clone, PartialEq)]
 struct MonitorState {
     connected: bool,
-    in_session: bool,
+    // in_session: bool,
     session_type: String,
-    session_state: String,
+    // session_state: String,
     timestamp: String,
 }
 
@@ -20,16 +23,57 @@ impl Default for MonitorState {
     fn default() -> Self {
         Self {
             connected: false,
-            in_session: false,
+            // in_session: false,
             session_type: "None".to_string(),
-            session_state: "None".to_string(),
+            // session_state: "None".to_string(),
             timestamp: Utc::now().to_rfc3339(),
         }
     }
 }
 
+struct IracingClient {
+    client: Option<iracing::Client>,
+}
+
+impl IracingClient {
+    async fn new() -> Self {
+        Self {
+            client: iracing::Client::try_connect().await.ok()
+        }
+    }
+
+    fn is_connected(&self) -> bool {
+        self.client.is_some()
+    }
+
+    async fn connect(&mut self) -> bool {
+        if !self.is_connected() {
+            self.client = iracing::Client::try_connect().await.ok()
+        }
+        self.is_connected()
+    }
+
+    async fn get_current_session_type(&mut self) -> Option<String> {
+        if !self.connect().await {
+            return None;
+        }
+    
+        let client = self.client.as_mut()?;
+        let sim_state = client.next_sim_state().await?;
+        let session_info = sim_state.session_info();
+        let session_num = sim_state.read_name::<i32>("SessionNum")?;
+        
+        let sessions = session_info["SessionInfo"]["Sessions"].as_vec()?;
+        
+        sessions.iter()
+            .find(|session| session["SessionNum"].as_i64().is_some_and(|num| num as i32 == session_num))
+            .and_then(|session| session["SessionType"].as_str())
+            .map(String::from)
+    }
+}
+
 struct Monitor {
-    iracing: Client,
+    iracing: IracingClient,
     mqtt: AsyncClient,
     last_state: Option<MonitorState>,
     mqtt_topic: String,
@@ -50,7 +94,7 @@ impl Monitor {
         });
 
         Ok(Self {
-            iracing: Client::new()?,
+            iracing: IracingClient::new().await,
             mqtt: mqtt_client,
             last_state: None,
             mqtt_topic: "iracing/status".to_string(),
@@ -71,70 +115,37 @@ impl Monitor {
         Ok(())
     }
 
-    fn get_session_type(session: &Session) -> String {
-        match session.session_type() {
-            iracing::SessionType::Practice => "Practice",
-            iracing::SessionType::OpenQualify => "OpenQualify",
-            iracing::SessionType::LoneQualify => "LoneQualify",
-            iracing::SessionType::Race => "Race",
-            _ => "Unknown"
-        }.to_string()
-    }
+    // fn get_session_type(session: &Session) -> String {
+    //     match session.session_type() {
+    //         iracing::SessionType::Practice => "Practice",
+    //         iracing::SessionType::OpenQualify => "OpenQualify",
+    //         iracing::SessionType::LoneQualify => "LoneQualify",
+    //         iracing::SessionType::Race => "Race",
+    //         _ => "Unknown"
+    //     }.to_string()
+    // }
 
-    fn get_current_state(&mut self) -> Result<MonitorState> {
-        // Try to connect/reconnect to iRacing
-        if !self.iracing.is_connected() {
-            self.iracing.connect()?;
-        }
-
-        // If still not connected after attempt, return disconnected state
-        if !self.iracing.is_connected() {
-            return Ok(MonitorState::default());
-        }
-
-        // Get current session
-        let session = self.iracing.session()?;
-        
-        let session_type = Self::get_session_type(&session);
-        
-        let session_state = match session.state() {
-            SessionState::Invalid => "Invalid",
-            SessionState::GetInCar => "GetInCar",
-            SessionState::Warmup => "Warmup",
-            SessionState::ParadeLaps => "ParadeLaps",
-            SessionState::Racing => "Racing",
-            SessionState::Checkered => "Checkered",
-            SessionState::CoolDown => "CoolDown",
-        };
-
-        Ok(MonitorState {
-            connected: true,
-            in_session: session_state != "Invalid",
+    async fn get_current_state(&mut self) -> MonitorState {
+        let connected = self.iracing.is_connected();
+        let session_type = self.iracing.get_current_session_type().await.unwrap_or("None".to_string());
+        MonitorState {
+            connected,
             session_type,
-            session_state: session_state.to_string(),
             timestamp: Utc::now().to_rfc3339(),
-        })
+        }
     }
 
     async fn run(&mut self) -> Result<()> {
         println!("Starting iRacing monitor...");
         
-        let mut interval = time::interval(Duration::from_secs(1));
+        let mut interval = time::interval(Duration::from_secs(5));
         
         loop {
             interval.tick().await;
             
-            match self.get_current_state() {
-                Ok(state) => {
-                    if let Err(e) = self.publish_state(&state).await {
-                        eprintln!("Failed to publish state: {}", e);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to get iRacing state: {}", e);
-                    // Publish disconnected state
-                    self.publish_state(&MonitorState::default()).await?;
-                }
+            let state = self.get_current_state().await;
+            if let Err(e) = self.publish_state(&state).await {
+                eprintln!("Failed to publish state: {}", e);
             }
         }
     }
