@@ -8,12 +8,14 @@ use rumqttc::{AsyncClient, MqttOptions, QoS};
 use serde::Serialize;
 use std::time::Duration;
 use tokio::time;
+use env_logger::{Builder, Target};
+use log::LevelFilter;
 
 #[derive(Debug, Serialize, Clone, PartialEq)]
 struct MonitorState {
     connected: bool,
     // in_session: bool,
-    session_type: String,
+    current_session_type: String,
     // session_state: String,
     timestamp: String,
 }
@@ -23,7 +25,7 @@ impl Default for MonitorState {
         Self {
             connected: false,
             // in_session: false,
-            session_type: "None".to_string(),
+            current_session_type: "None".to_string(), // "None" registers as "Unknown" in Home Assistant
             // session_state: "None".to_string(),
             timestamp: Utc::now().to_rfc3339(),
         }
@@ -37,7 +39,8 @@ struct IracingClient {
 impl IracingClient {
     async fn new() -> Self {
         Self {
-            client: iracing::Client::try_connect().await.ok()
+            // client: iracing::Client::try_connect().await.ok()
+            client: None
         }
     }
 
@@ -57,8 +60,16 @@ impl IracingClient {
             return None;
         }
     
-        let client = self.client.as_mut()?;
-        let sim_state = client.next_sim_state().await?;
+        let client = self.client.as_mut().expect("Could not get client as mut");
+        let sim_state = match client.next_sim_state().await {
+            Some(state) => state,
+            None => {
+                // iRacing most likely disconnected, reset client
+                log::warn!("Lost connection to iRacing.");
+                self.client = None;
+                return None;
+            }
+        };
         let session_info = sim_state.session_info();
         let session_num = sim_state.read_name::<i32>("SessionNum")?;
         
@@ -84,7 +95,7 @@ impl Monitor {
             iracing: IracingClient::new().await,
             mqtt: mqtt_client,
             last_state: None,
-            mqtt_topic: "iracing/status".to_string(),
+            mqtt_topic: "homeassistant/sensor/iracing/state".to_string(),
         })
     }
 
@@ -105,21 +116,48 @@ impl Monitor {
     }
 
     async fn get_current_state(&mut self) -> MonitorState {
-        let connected = self.iracing.is_connected();
-        let session_type = self.iracing.get_current_session_type().await.unwrap_or("None".to_string());
-        log::debug!("Found session_type: {}", session_type);
-        MonitorState {
-            connected,
-            session_type,
-            timestamp: Utc::now().to_rfc3339(),
+        // let connected = self.iracing.is_connected();
+        match self.iracing.get_current_session_type().await {
+            Some(session_type) => {
+                log::debug!("Found session_type: {}", session_type);
+                MonitorState {
+                    connected: true,
+                    current_session_type: session_type,
+                    timestamp: Utc::now().to_rfc3339(),
+                }
+            },
+            None => {
+                MonitorState {
+                    connected: false,
+                    current_session_type: "Disconnected".to_string(),
+                    timestamp: Utc::now().to_rfc3339(),
+                }
+            }
         }
     }
 
     async fn run(&mut self) -> Result<()> {
         log::info!("Starting iRacing monitor...");
-        
+
+        if let Some(mqtt) = self.mqtt.as_mut() {
+            if register_device(mqtt).await.is_err() {
+                log::warn!("Failed to register MQTT device");
+            }
+        }
+
+        // let initial_state = MonitorState{
+        //     current_session_type: "Disconnected".to_string(),
+        //     ..Default::default()
+        // };
+        // if let Err(e) = self.publish_state(&initial_state).await {
+        //     log::warn!("Failed to publish state: {}", e);
+        // }
+
+        log::info!("Waiting for connection to iRacing.");
+        self.iracing.connect().await;
+        log::info!("Connected to iRacing!");
+
         let mut interval = time::interval(Duration::from_secs(5));
-        
         loop {
             interval.tick().await;
             
@@ -133,11 +171,54 @@ impl Monitor {
     }
 }
 
+async fn register_device(mqtt: &mut AsyncClient) -> Result<()> {
+    // homeassistant/sensor/hp_1231232/config
+    // <discovery_prefix>/<component>/[<node_id>/]<object_id>/config
+    // Best practice for entities with a unique_id is to set <object_id> to unique_id and omit the <node_id>.
+
+    let configuration_topic = "homeassistant/sensor/iracing/config";
+    let config = serde_json::json!({
+        "name": "Session type",
+        "state_topic": "homeassistant/sensor/iracing/state",
+        // "device_class": "timestamp",  // optional, will use "None: Generic sensor. (This is the default and doesn’t need to be set.)" if not set
+        "value_template": "{{ value_json.current_session_type }}",
+        "unique_id": "iracing_session_type",
+        "expire_after": 30,
+        "device": {
+            "identifiers": "my_unique_id",
+            "name": "iRacing Simulator",
+        }
+    });
+
+    mqtt.publish(
+        configuration_topic,
+        QoS::AtLeastOnce,
+        true, // retain flag set to true for discovery
+        serde_json::to_string(&config)?,
+    )
+    .await
+    .context("Failed to publish MQTT discovery configuration")?;
+
+    log::info!("Registered device with Home Assistant.");
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
+    // env_logger::init();
+    let mut builder = Builder::from_default_env();
+    
+    // Set external crates to INFO level
+    // builder.filter_module("rumqttc", LevelFilter::Info);
+    
+    // Keep your application at DEBUG level
+    builder.filter_module("iracing_ha_monitor", LevelFilter::Debug);
+    
+    // Apply the configuration
+    builder.target(Target::Stdout)
+           .init();
 
-    log::debug!("This is a debug message");
+    log::info!("Welcome to iRacing HA monitor!");
 
     let mqtt_host = std::env::var("MQTT_HOST").ok();
     let mqtt_port = std::env::var("MQTT_PORT")
@@ -161,12 +242,16 @@ async fn main() -> Result<()> {
                 // Handle MQTT events if needed
             }
         });
-
+        log::info!("MQTT client set up.");
         Some(mqtt_client)
     } else {
+        log::info!("Missing MQTT config, skipping MQTT publishing.");
         None
     };
     
     let mut monitor = Monitor::new(mqtt_client).await?;
     monitor.run().await
 }
+
+// TODO:
+// - Add entity/device discovery message
