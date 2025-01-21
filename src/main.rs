@@ -10,6 +10,7 @@ use std::time::Duration;
 use tokio::time;
 use env_logger::{Builder, Target};
 use log::LevelFilter;
+use tokio::time::timeout;
 
 #[derive(Debug, Serialize, Clone, PartialEq)]
 struct MonitorState {
@@ -50,7 +51,23 @@ impl IracingClient {
 
     async fn connect(&mut self) -> bool {
         if !self.is_connected() {
-            self.client = iracing::Client::try_connect().await.ok()
+            log::debug!("Waiting for iRacing connection...");
+
+            // Add a timeout of 5 seconds (adjust duration as needed)
+            let connect_result = timeout(
+                Duration::from_secs(5),
+                iracing::Client::try_connect()
+            ).await;
+            
+            // Handle both timeout and connection errors
+            self.client = match connect_result {
+                Ok(client_result) => client_result.ok(),
+                Err(_elapsed) => {
+                    log::debug!("Connection attempt timed out.");
+                    None
+                }
+            };
+            
         }
         self.is_connected()
     }
@@ -65,7 +82,7 @@ impl IracingClient {
             Some(state) => state,
             None => {
                 // iRacing most likely disconnected, reset client
-                log::warn!("Lost connection to iRacing.");
+                log::info!("Lost connection to iRacing.");
                 self.client = None;
                 return None;
             }
@@ -154,8 +171,11 @@ impl Monitor {
         // }
 
         log::info!("Waiting for connection to iRacing.");
-        self.iracing.connect().await;
-        log::info!("Connected to iRacing!");
+        if self.iracing.connect().await {
+            log::info!("Connected to iRacing!");
+        } else {
+            log::info!("Failed to connect to iRacing.");
+        }
 
         let mut interval = time::interval(Duration::from_secs(5));
         loop {
