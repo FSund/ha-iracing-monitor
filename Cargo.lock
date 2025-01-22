@@ -633,6 +633,7 @@ name = "iracing-ha-monitor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "chrono",
  "env_logger",
  "iracing",

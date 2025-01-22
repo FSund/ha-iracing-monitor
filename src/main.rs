@@ -1,5 +1,4 @@
 mod iracing_client;
-use iracing_client::IracingClient;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -33,7 +32,7 @@ impl Default for MonitorState {
 }
 
 struct Monitor {
-    iracing: IracingClient,
+    iracing: iracing_client::Client,
     mqtt: Option<AsyncClient>,
     last_state: Option<MonitorState>,
     mqtt_topic: String,
@@ -42,7 +41,7 @@ struct Monitor {
 impl Monitor {
     async fn new(mqtt_client: Option<AsyncClient>) -> Result<Self> {
         Ok(Self {
-            iracing: IracingClient::new().await,
+            iracing: iracing_client::Client::new().await,
             mqtt: mqtt_client,
             last_state: None,
             mqtt_topic: "homeassistant/sensor/iracing/state".to_string(),

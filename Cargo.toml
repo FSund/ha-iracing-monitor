@@ -5,26 +5,38 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.95"
+async-trait = "0.1.85"
 chrono = "0.4.39"
 env_logger = "0.11.6"
-iracing = "0.4.1"
-iracing-telem = "0.2.1"
+#iracing = "0.4.1"
+#iracing-telem = "0.2.1"
 log = "0.4.22"
 rumqttc = "0.24.0"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.135"
-simetry = { version = "0.2.3", default-features = false }
+simetry = { version = "0.2.3", default-features = false, optional = true }
 tokio = { version = "1.43.0", features = ["full"] }
 yaml-rust = "0.4.5"
 
+[features]
+default = []
+windows = ["dep:simetry"]
+
 [[example]]
 name = "get_telemetry"
+required-features = ["iracing"]
 
 [[example]]
 name = "dump_sample"
+required-features = ["iracing"]
 
 [[example]]
 name = "iracing_telem_sample"
+required-features = ["iracing-telem"]
 
 [[example]]
 name = "simetry_sample"
+
+[dev-dependencies]
+iracing = "0.4.1"
+iracing-telem = "0.2.1"
