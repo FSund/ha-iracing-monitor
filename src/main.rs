@@ -1,5 +1,6 @@
 mod iracing_client;
 
+use iracing_client::SimClient;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rumqttc::{AsyncClient, MqttOptions, QoS};
