@@ -8,10 +8,6 @@ pub struct IracingClient {
 }
 
 impl IracingClient {
-    pub async fn new() -> Self {
-        Self { client: None }
-    }
-
     fn is_connected(&self) -> bool {
         self.client.is_some()
     }
@@ -19,6 +15,10 @@ impl IracingClient {
 
 #[async_trait::async_trait]
 impl SimClient for IracingClient {
+    fn new() -> Self {
+        Self { client: None }
+    }
+
     async fn connect(&mut self) -> bool {
         if !self.is_connected() {
             log::debug!("Waiting for iRacing connection...");

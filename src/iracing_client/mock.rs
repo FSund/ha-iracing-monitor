@@ -5,10 +5,6 @@ pub struct MockClient {
 }
 
 impl MockClient {
-    pub async fn new() -> Self {
-        Self { connected: false }
-    }
-
     fn is_connected(&self) -> bool {
         self.connected
     }
@@ -16,6 +12,10 @@ impl MockClient {
 
 #[async_trait::async_trait]
 impl SimClient for MockClient {
+    fn new() -> Self {
+        Self { connected: false }
+    }
+
     async fn connect(&mut self) -> bool {
         self.connected = true;
         self.connected

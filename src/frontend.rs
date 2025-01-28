@@ -1,6 +1,6 @@
 use std::default;
 
-use crate::monitor;
+use crate::sim_monitor::{self, SimMonitor};
 
 use iced::widget::{button, column, text, text_input, Column};
 use iced::window;
@@ -16,17 +16,26 @@ pub enum Message {
     Connect,
     WindowOpened(window::Id),
     WindowClosed(window::Id),
-    SimState(monitor::Event),
+    SimState(sim_monitor::Event),
     Quit,
 }
+
+enum State {
+    Disconnected,
+    Connected(sim_monitor::Connection),
+}
+
 
 pub struct IracingMonitorGui {
     mqtt_host: String,
     mqtt_port: String,
     mqtt_user: String,
     mqtt_password: String,
-    connection_status: String,
-    iracing_connection_status: String,
+    // connection_status: String,
+    // iracing_connection_status: String,
+    // sim_monitor: SimMonitor,
+    state: State,
+    port_is_valid: bool,
 }
 
 impl IracingMonitorGui {
@@ -39,8 +48,11 @@ impl IracingMonitorGui {
                 mqtt_port: String::from("1883"),
                 mqtt_user: String::new(),
                 mqtt_password: String::new(),
-                connection_status: String::from("Disconnected"),
-                iracing_connection_status: String::from("Disconnected"),
+                // connection_status: String::from("Disconnected"),
+                // iracing_connection_status: String::from("Disconnected"),
+                // sim_monitor: SimMonitor::new(None),
+                state: State::Disconnected,
+                port_is_valid: true,
             },
             open.map(Message::WindowOpened),
         )
@@ -51,13 +63,44 @@ impl IracingMonitorGui {
         format!("IRacingMonitor {:?}", window_id)
     }
 
+    // fn get_config_message(&self) -> sim_monitor::Message {
+    //     if let Ok(mqtt_port) = self.mqtt_port.parse() { 
+    //         // self.mqtt_port = val; 
+
+    //         let mqtt_config = sim_monitor::MqttConfig {
+    //             host: self.mqtt_host.clone(),
+    //             port: mqtt_port,
+    //             user: self.mqtt_user.clone(),
+    //             password: self.mqtt_password.clone(),
+    //         };
+    //         sim_monitor::Message::UpdateConfig(mqtt_config)
+    //     }
+    // }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::MqttHostChanged(value) => {
                 self.mqtt_host = value;
+
+                // let msg = self.get_config_message();
+                // match &mut self.state {
+                //     State::Connected(connection) => {
+                //         connection.send(msg);
+                //         Task::none()
+                //     }
+                //     State::Disconnected => Task::none()
+                // }
                 Task::none()
             }
             Message::MqttPortChanged(value) => {
+                log::debug!("Port is {value}");
+                if let Ok(_val) = value.parse::<u16>() {
+                    // self.mqtt_port = Some(val);
+                    self.port_is_valid = true;
+                } else {
+                    // self.mqtt_port = None;
+                    self.port_is_valid = false;
+                }
                 self.mqtt_port = value;
                 Task::none()
             }
@@ -71,7 +114,8 @@ impl IracingMonitorGui {
             }
             Message::Connect => {
                 // Here you would implement the actual connection logic
-                self.connection_status = String::from("Connecting...");
+                // self.connection_status = String::from("Connecting...");
+                todo!("Connect not implemented yet");
                 Task::none()
             }
             Message::WindowOpened(_id) => {
@@ -89,7 +133,16 @@ impl IracingMonitorGui {
             }
             Message::SimState(event) => {
                 log::debug!("SimState event received! ({event})");
-                self.iracing_connection_status = format!("{event}");
+                // self.iracing_connection_status = format!("{event}");
+
+                match event {
+                    sim_monitor::Event::Ready(connection) => {
+                        self.state = State::Connected(connection);
+                    }
+                    sim_monitor::Event::Disconnected => {
+                        self.state = State::Disconnected;
+                    }
+                }
                 Task::none()
             }
             Message::Quit => {
@@ -101,6 +154,11 @@ impl IracingMonitorGui {
 
     pub fn view(&self, _window_id: iced::window::Id) -> Column<Message> {
         // let content =
+        let connect_button = if self.port_is_valid {
+            button("Connect").padding(10).on_press(Message::Connect)
+        } else {
+            button("Connect").padding(10)
+        };
         column![
             text("iRacing Home Assistant Monitor").size(28),
             text_input("MQTT Host", &self.mqtt_host)
@@ -120,9 +178,9 @@ impl IracingMonitorGui {
                 .padding(10)
                 .size(20)
                 .secure(true),
-            button("Connect").padding(10).on_press(Message::Connect),
-            text(&self.connection_status).size(16),
-            text(&self.iracing_connection_status).size(16),
+            connect_button,
+            // text(&self.connection_status).size(16),
+            // text(&self.iracing_connection_status).size(16),
         ]
     }
 
@@ -143,7 +201,8 @@ impl IracingMonitorGui {
         Subscription::batch(vec![
             window::close_events().map(Message::WindowClosed),
             keyboard::on_key_press(handle_hotkey),
-            Subscription::run(monitor::run_the_stuff).map(Message::SimState),
+            // Subscription::run(sim_monitor::run_the_stuff).map(Message::SimState),
+            Subscription::run(sim_monitor::connect).map(Message::SimState),
         ])
     }
 }

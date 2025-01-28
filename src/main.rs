@@ -1,6 +1,6 @@
 mod iracing_client;
 mod frontend;
-mod monitor;
+mod sim_monitor;
 
 // use iracing_client::SimClient;
 // use anyhow::{Context, Result};
