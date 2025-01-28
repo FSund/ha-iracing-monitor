@@ -1,11 +1,9 @@
-use std::default;
+use crate::sim_monitor;
 
-use crate::sim_monitor::{self, SimMonitor};
-
+use iced::keyboard;
 use iced::widget::{button, column, text, text_input, Column};
 use iced::window;
-use iced::{Center, Element, Fill, Subscription, Task, Theme, Vector};
-use iced::keyboard;
+use iced::{Subscription, Task};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -21,21 +19,27 @@ pub enum Message {
 }
 
 enum State {
-    Disconnected,
-    Connected(sim_monitor::Connection),
+    WaitingForBackendConnection,
+    ConnectedToBackend(sim_monitor::Connection),
 }
 
+impl std::fmt::Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            State::ConnectedToBackend(_connection) => write!(f, "Ready"),
+            State::WaitingForBackendConnection => write!(f, "Waiting for backend connection"),
+        }
+    }
+}
 
 pub struct IracingMonitorGui {
     mqtt_host: String,
     mqtt_port: String,
     mqtt_user: String,
     mqtt_password: String,
-    // connection_status: String,
-    // iracing_connection_status: String,
-    // sim_monitor: SimMonitor,
     state: State,
     port_is_valid: bool,
+    connected_to_sim: bool,
 }
 
 impl IracingMonitorGui {
@@ -48,11 +52,9 @@ impl IracingMonitorGui {
                 mqtt_port: String::from("1883"),
                 mqtt_user: String::new(),
                 mqtt_password: String::new(),
-                // connection_status: String::from("Disconnected"),
-                // iracing_connection_status: String::from("Disconnected"),
-                // sim_monitor: SimMonitor::new(None),
-                state: State::Disconnected,
+                state: State::WaitingForBackendConnection,
                 port_is_valid: true,
+                connected_to_sim: false,
             },
             open.map(Message::WindowOpened),
         )
@@ -63,42 +65,17 @@ impl IracingMonitorGui {
         format!("IRacingMonitor {:?}", window_id)
     }
 
-    // fn get_config_message(&self) -> sim_monitor::Message {
-    //     if let Ok(mqtt_port) = self.mqtt_port.parse() { 
-    //         // self.mqtt_port = val; 
-
-    //         let mqtt_config = sim_monitor::MqttConfig {
-    //             host: self.mqtt_host.clone(),
-    //             port: mqtt_port,
-    //             user: self.mqtt_user.clone(),
-    //             password: self.mqtt_password.clone(),
-    //         };
-    //         sim_monitor::Message::UpdateConfig(mqtt_config)
-    //     }
-    // }
-
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::MqttHostChanged(value) => {
                 self.mqtt_host = value;
-
-                // let msg = self.get_config_message();
-                // match &mut self.state {
-                //     State::Connected(connection) => {
-                //         connection.send(msg);
-                //         Task::none()
-                //     }
-                //     State::Disconnected => Task::none()
-                // }
                 Task::none()
             }
             Message::MqttPortChanged(value) => {
                 log::debug!("Port is {value}");
                 if let Ok(_val) = value.parse::<u16>() {
-                    // self.mqtt_port = Some(val);
                     self.port_is_valid = true;
                 } else {
-                    // self.mqtt_port = None;
                     self.port_is_valid = false;
                 }
                 self.mqtt_port = value;
@@ -113,21 +90,24 @@ impl IracingMonitorGui {
                 Task::none()
             }
             Message::Connect => {
-                // Here you would implement the actual connection logic
-                // self.connection_status = String::from("Connecting...");
-                // todo!("Connect not implemented yet");
-                let mqtt_config = sim_monitor::MqttConfig {
-                    host: self.mqtt_host.clone(),
-                    port: self.mqtt_port.parse().expect("Unable to parse port"),
-                    user: self.mqtt_user.clone(),
-                    password: self.mqtt_password.clone(),
-                };
-                let msg = sim_monitor::Message::UpdateConfig(mqtt_config);
-                match &mut self.state {
-                    State::Connected(connection) => {
-                        connection.send(msg);
+                if let Ok(port) = self.mqtt_port.parse() {
+                    let mqtt_config = sim_monitor::MqttConfig {
+                        host: self.mqtt_host.clone(),
+                        port,
+                        user: self.mqtt_user.clone(),
+                        password: self.mqtt_password.clone(),
+                    };
+                    let msg = sim_monitor::Message::UpdateConfig(mqtt_config);
+                    match &mut self.state {
+                        State::ConnectedToBackend(connection) => {
+                            connection.send(msg);
+                        }
+                        State::WaitingForBackendConnection => {
+                            log::warn!("Invalid state, waiting for backend")
+                        }
                     }
-                    State::Disconnected => { panic!("not connected") }
+                } else {
+                    log::warn!("Invalid MQTT config");
                 }
 
                 Task::none()
@@ -151,10 +131,20 @@ impl IracingMonitorGui {
 
                 match event {
                     sim_monitor::Event::Ready(connection) => {
-                        self.state = State::Connected(connection);
+                        self.state = State::ConnectedToBackend(connection);
+                        log::info!("Backend ready, waiting for game");
                     }
-                    sim_monitor::Event::Disconnected => {
-                        self.state = State::Disconnected;
+                    sim_monitor::Event::DisconnectedFromSim => {
+                        if self.connected_to_sim {
+                            log::info!("Disconnected from game");
+                            self.connected_to_sim = false;
+                        }
+                    }
+                    sim_monitor::Event::ConnectedToSim => {
+                        if !self.connected_to_sim {
+                            log::info!("Connected to game");
+                            self.connected_to_sim = true;
+                        }
                     }
                 }
                 Task::none()
@@ -167,12 +157,12 @@ impl IracingMonitorGui {
     }
 
     pub fn view(&self, _window_id: iced::window::Id) -> Column<Message> {
-        // let content =
-        let connect_button = if self.port_is_valid {
-            button("Connect").padding(10).on_press(Message::Connect)
-        } else {
-            button("Connect").padding(10)
-        };
+        let connect_button =
+            if self.port_is_valid && matches!(self.state, State::ConnectedToBackend(_)) {
+                button("Connect").padding(10).on_press(Message::Connect)
+            } else {
+                button("Connect").padding(10)
+            };
         column![
             text("iRacing Home Assistant Monitor").size(28),
             text_input("MQTT Host", &self.mqtt_host)
@@ -193,21 +183,17 @@ impl IracingMonitorGui {
                 .size(20)
                 .secure(true),
             connect_button,
-            // text(&self.connection_status).size(16),
-            // text(&self.iracing_connection_status).size(16),
+            text(self.state.to_string()).size(16)
         ]
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        fn handle_hotkey(
-            key: keyboard::Key,
-            modifiers: keyboard::Modifiers,
-        ) -> Option<Message> {
-            // use keyboard::key;
-
+        fn handle_hotkey(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
             match (key.as_ref(), modifiers) {
                 // quit on Ctrl+Q
-                (keyboard::Key::Character("q"), modifiers) if modifiers.control() => Some(Message::Quit),
+                (keyboard::Key::Character("q"), modifiers) if modifiers.control() => {
+                    Some(Message::Quit)
+                }
                 _ => None,
             }
         }
@@ -215,7 +201,6 @@ impl IracingMonitorGui {
         Subscription::batch(vec![
             window::close_events().map(Message::WindowClosed),
             keyboard::on_key_press(handle_hotkey),
-            // Subscription::run(sim_monitor::run_the_stuff).map(Message::SimState),
             Subscription::run(sim_monitor::connect).map(Message::SimState),
         ])
     }

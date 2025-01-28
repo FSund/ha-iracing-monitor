@@ -5,7 +5,12 @@ pub struct MockClient {
 }
 
 impl MockClient {
-    fn is_connected(&self) -> bool {
+    // fn is_connected(&self) -> bool {
+    //     self.connected
+    // }
+
+    async fn connect(&mut self) -> bool {
+        self.connected = true;
         self.connected
     }
 }
@@ -16,12 +21,11 @@ impl SimClient for MockClient {
         Self { connected: false }
     }
 
-    async fn connect(&mut self) -> bool {
-        self.connected = true;
-        self.connected
-    }
-
     async fn get_current_session_type(&mut self) -> Option<String> {
+        if !self.connect().await {
+            return None;
+        }
+
         if self.connected {
             Some("Practice".to_string()) // Mock implementation
         } else {

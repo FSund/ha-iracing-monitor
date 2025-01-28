@@ -1,20 +1,15 @@
 use crate::iracing_client;
 
-use iracing_client::SimClient;
 use anyhow::{Context, Result};
 use chrono::Utc;
+use iced::futures::channel::mpsc;
+use iced::futures::StreamExt;
+use iced::futures::{SinkExt, Stream};
+use iced::stream;
+use iracing_client::SimClient;
 use rumqttc::{AsyncClient, MqttOptions, QoS};
 use serde::Serialize;
 use std::time::Duration;
-use tokio::time;
-use iced::stream;
-use iced::futures::{SinkExt, Stream};
-use iced::futures::StreamExt;
-use iced::futures::channel::mpsc;
-// use env_logger::{Builder, Target};
-// use log::LevelFilter;
-// use iced;
-// use frontend::IracingMonitorGui;
 
 #[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct SimMonitorState {
@@ -45,7 +40,6 @@ pub struct MqttConfig {
     pub password: String,
 }
 
-
 pub struct SimMonitor {
     iracing: iracing_client::Client,
     mqtt: Option<AsyncClient>,
@@ -67,13 +61,14 @@ impl SimMonitor {
         }
     }
 
-    fn update_mqtt_config(&mut self, mqtt_config: MqttConfig) {
+    async fn update_mqtt_config(&mut self, mqtt_config: MqttConfig) {
         self.mqtt = {
-            let mut mqtt_options = MqttOptions::new("iracing-monitor", mqtt_config.host, mqtt_config.port);
+            let mut mqtt_options =
+                MqttOptions::new("iracing-monitor", mqtt_config.host, mqtt_config.port);
             mqtt_options.set_keep_alive(Duration::from_secs(5));
             mqtt_options.set_credentials(mqtt_config.user, mqtt_config.password);
             let (mqtt_client, mut mqtt_eventloop) = AsyncClient::new(mqtt_options, 10);
-    
+
             // Start MQTT event loop
             tokio::spawn(async move {
                 while let Ok(_notification) = mqtt_eventloop.poll().await {
@@ -83,20 +78,26 @@ impl SimMonitor {
             log::info!("MQTT client set up.");
             Some(mqtt_client)
         };
+
+        if let Some(mqtt) = self.mqtt.as_mut() {
+            if register_device(mqtt).await.is_err() {
+                log::warn!("Failed to register MQTT device");
+            }
+        }
     }
 
     async fn publish_state(&mut self, state: &SimMonitorState) -> Result<()> {
         if Some(state) != self.last_state.as_ref() {
             if let Some(mqtt) = self.mqtt.as_mut() {
                 let payload = serde_json::to_string(&state)?;
-                mqtt
-                    .publish(&self.mqtt_topic, QoS::AtLeastOnce, false, payload)
+                mqtt.publish(&self.mqtt_topic, QoS::AtLeastOnce, false, payload)
                     .await
                     .context("Failed to publish MQTT message")?;
-                
+
                 log::debug!("Published state: {:?}", state);
             } else {
-                log::debug!("No MQTT connection set up");
+                log::debug!("Unable to publish state, not connected to MQTT");
+                // anyhow::bail!("No MQTT connection set up");
             }
             self.last_state = Some(state.clone());
         }
@@ -113,60 +114,14 @@ impl SimMonitor {
                     current_session_type: session_type,
                     timestamp: Utc::now().to_rfc3339(),
                 }
+            }
+            None => SimMonitorState {
+                connected: false,
+                current_session_type: "Disconnected".to_string(),
+                timestamp: Utc::now().to_rfc3339(),
             },
-            None => {
-                SimMonitorState {
-                    connected: false,
-                    current_session_type: "Disconnected".to_string(),
-                    timestamp: Utc::now().to_rfc3339(),
-                }
-            }
         }
     }
-
-    async fn run(&mut self) -> Result<()> {
-        log::info!("Starting iRacing monitor...");
-
-        if let Some(mqtt) = self.mqtt.as_mut() {
-            if register_device(mqtt).await.is_err() {
-                log::warn!("Failed to register MQTT device");
-            }
-        }
-
-        // let initial_state = MonitorState{
-        //     current_session_type: "Disconnected".to_string(),
-        //     ..Default::default()
-        // };
-        // if let Err(e) = self.publish_state(&initial_state).await {
-        //     log::warn!("Failed to publish state: {}", e);
-        // }
-
-        log::info!("Waiting for connection to iRacing.");
-        if self.iracing.connect().await {
-            log::info!("Connected to iRacing!");
-        } else {
-            log::info!("Failed to connect to iRacing.");
-        }
-
-        let mut interval = time::interval(Duration::from_secs(5));
-        loop {
-            interval.tick().await;
-            
-            let state = self.get_current_state().await;
-            if let Err(e) = self.publish_state(&state).await {
-                log::warn!("Failed to publish state: {}", e);
-            }
-
-            log::debug!("TICK");
-        }
-    }
-
-    // async fn tick(&mut self) {
-    //     let state = self.get_current_state().await;
-    //     if let Err(e) = self.publish_state(&state).await {
-    //         log::warn!("Failed to publish state: {}", e);
-    //     }
-    // }
 }
 
 async fn register_device(mqtt: &mut AsyncClient) -> Result<()> {
@@ -201,17 +156,9 @@ async fn register_device(mqtt: &mut AsyncClient) -> Result<()> {
     Ok(())
 }
 
-// #[derive(Debug, Clone)]
-// pub enum Input {
-//     // DoSomeWork,
-//     UpdateConfig(MqttConfig),
-// }
-
 // messages to SimMonitor
 #[derive(Debug, Clone)]
 pub enum Message {
-    // Connected,
-    // Disconnected,
     UpdateConfig(MqttConfig),
 }
 
@@ -220,9 +167,7 @@ pub struct Connection(mpsc::Sender<Message>);
 
 impl Connection {
     pub fn send(&mut self, message: Message) {
-        self.0
-            .try_send(message)
-            .expect("Send message SimMonitor");
+        self.0.try_send(message).expect("Send message SimMonitor");
     }
 }
 
@@ -230,67 +175,20 @@ impl Connection {
 #[derive(Debug, Clone)]
 pub enum Event {
     Ready(Connection),
-    Disconnected,
+    ConnectedToSim,
+    DisconnectedFromSim,
 }
 
 impl std::fmt::Display for Event {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             // Event::Ready(_) => write!(f, "Ready to connect to iRacing"),
-            Event::Ready(_connection) => write!(f, "iRacing Connected"),
-            Event::Disconnected => write!(f, "iRacing Disconnected")
+            Event::Ready(_connection) => write!(f, "Ready"),
+            Event::DisconnectedFromSim => write!(f, "iRacing Disconnected"),
+            Event::ConnectedToSim => write!(f, "iRacing Connected"),
         }
     }
 }
-
-// try to use this for now
-// make something nicer later
-// pub fn run_the_stuff() -> impl Stream<Item = Event> {
-//     let mqtt_host = std::env::var("MQTT_HOST").ok();
-//     let mqtt_port = std::env::var("MQTT_PORT")
-//         .ok()
-//         .and_then(|p| p.parse().ok())
-//         .or(Some(1883));
-
-//     let mqtt_user = std::env::var("MQTT_USER").unwrap_or("".to_string());
-//     let mqtt_password = std::env::var("MQTT_PASSWORD").unwrap_or("".to_string());
-
-//     // Set up MQTT client
-//     let mqtt_client = if let (Some(host), Some(port)) = (mqtt_host, mqtt_port) {
-//         let mut mqtt_options = MqttOptions::new("iracing-monitor", host, port);
-//         mqtt_options.set_keep_alive(Duration::from_secs(5));
-//         mqtt_options.set_credentials(mqtt_user, mqtt_password);
-//         let (mqtt_client, mut mqtt_eventloop) = AsyncClient::new(mqtt_options, 10);
-
-//         // Start MQTT event loop
-//         tokio::spawn(async move {
-//             while let Ok(_notification) = mqtt_eventloop.poll().await {
-//                 // Handle MQTT events if needed
-//             }
-//         });
-//         log::info!("MQTT client set up.");
-//         Some(mqtt_client)
-//     } else {
-//         log::info!("Missing MQTT config, skipping MQTT publishing.");
-//         None
-//     };
-    
-//     stream::channel(100, |mut output| async move {
-//         let mut monitor = SimMonitor::new_with_config(mqtt_client);
-//         // monitor.run().await.expect("monitor.run() failed");
-
-//         loop {
-//             let state = monitor.get_current_state().await;
-//             if let Err(e) = monitor.publish_state(&state).await {
-//                 log::warn!("Failed to publish state: {}", e);
-//             }
-//             let _ = output.send(Event::Connected).await;
-//             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-//             log::info!("Tick");
-//         }
-//     })
-// }
-
 
 pub fn connect() -> impl Stream<Item = Event> {
     let mut monitor = SimMonitor::new();
@@ -301,7 +199,10 @@ pub fn connect() -> impl Stream<Item = Event> {
 
         // Send the sender back to the application
         // output.send(Event::Ready(sender)).await;
-        output.send(Event::Ready(Connection(sender))).await.expect("Unable to send");
+        output
+            .send(Event::Ready(Connection(sender)))
+            .await
+            .expect("Unable to send");
 
         loop {
             tokio::select! {
@@ -310,7 +211,7 @@ pub fn connect() -> impl Stream<Item = Event> {
                     match input {
                         Message::UpdateConfig(mqtt_config) => {
                             log::info!("Updating mqtt config");
-                            monitor.update_mqtt_config(mqtt_config);
+                            monitor.update_mqtt_config(mqtt_config).await;
                         }
                     }
                 }
@@ -319,6 +220,11 @@ pub fn connect() -> impl Stream<Item = Event> {
                     let state = monitor.get_current_state().await;
                     if let Err(e) = monitor.publish_state(&state).await {
                         log::warn!("Failed to publish state: {}", e);
+                    }
+                    if state.connected {
+                        output.send(Event::ConnectedToSim).await.expect("Unable to send");
+                    } else {
+                        output.send(Event::DisconnectedFromSim).await.expect("Unable to send");
                     }
                 }
             }

@@ -3,7 +3,7 @@ pub use async_trait::async_trait;
 #[async_trait]
 pub trait SimClient {
     fn new() -> Self;
-    async fn connect(&mut self) -> bool;
+    // async fn connect(&mut self) -> bool;
     // fn is_connected(&self) -> bool;
     async fn get_current_session_type(&mut self) -> Option<String>;
 }
