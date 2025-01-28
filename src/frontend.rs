@@ -115,7 +115,21 @@ impl IracingMonitorGui {
             Message::Connect => {
                 // Here you would implement the actual connection logic
                 // self.connection_status = String::from("Connecting...");
-                todo!("Connect not implemented yet");
+                // todo!("Connect not implemented yet");
+                let mqtt_config = sim_monitor::MqttConfig {
+                    host: self.mqtt_host.clone(),
+                    port: self.mqtt_port.parse().expect("Unable to parse port"),
+                    user: self.mqtt_user.clone(),
+                    password: self.mqtt_password.clone(),
+                };
+                let msg = sim_monitor::Message::UpdateConfig(mqtt_config);
+                match &mut self.state {
+                    State::Connected(connection) => {
+                        connection.send(msg);
+                    }
+                    State::Disconnected => { panic!("not connected") }
+                }
+
                 Task::none()
             }
             Message::WindowOpened(_id) => {

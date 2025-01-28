@@ -95,6 +95,8 @@ impl SimMonitor {
                     .context("Failed to publish MQTT message")?;
                 
                 log::debug!("Published state: {:?}", state);
+            } else {
+                log::debug!("No MQTT connection set up");
             }
             self.last_state = Some(state.clone());
         }
@@ -302,28 +304,24 @@ pub fn connect() -> impl Stream<Item = Event> {
         output.send(Event::Ready(Connection(sender))).await.expect("Unable to send");
 
         loop {
-            // use iced_futures::futures::StreamExt;
-
-            // Read next input sent from `Application`
-            // let input = receiver.select_next_some().await;
-            let input = receiver.next().await;
-
-            if let Some(input) = input {
-                match input {
-                    Message::UpdateConfig(mqtt_config) => {
-                        monitor.update_mqtt_config(mqtt_config);
-                        log::info!("Update mqtt config");
+            tokio::select! {
+                // Handle incoming messages
+                Some(input) = receiver.next() => {
+                    match input {
+                        Message::UpdateConfig(mqtt_config) => {
+                            log::info!("Updating mqtt config");
+                            monitor.update_mqtt_config(mqtt_config);
+                        }
+                    }
+                }
+                // Handle the periodic state update
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                    let state = monitor.get_current_state().await;
+                    if let Err(e) = monitor.publish_state(&state).await {
+                        log::warn!("Failed to publish state: {}", e);
                     }
                 }
             }
-
-            let state = monitor.get_current_state().await;
-            if let Err(e) = monitor.publish_state(&state).await {
-                log::warn!("Failed to publish state: {}", e);
-            }
-
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            log::info!("Tick");
         }
     })
 }
