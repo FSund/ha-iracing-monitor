@@ -50,15 +50,13 @@ pub struct IracingMonitorGui {
 
     // tray_icon: Option<TrayIcon>,
     tray: Option<tray::Connection>,
+
+    window_id: Option<window::Id>,
 }
 
 impl IracingMonitorGui {
     pub fn new() -> (Self, Task<Message>) {
-        let settings = iced::window::Settings {
-            size: iced::Size {width: 400.0 * 1.618, height: 400.0 },
-            min_size: Some(iced::Size {width: 300.0, height: 400.0 }),
-            ..Default::default()
-        };
+        let settings = Self::settings();
         let (_id, open) = window::open(settings);
 
         (
@@ -75,9 +73,19 @@ impl IracingMonitorGui {
 
                 // tray_icon: Some(new_tray_icon()), // panic, gtk has hot been initialized, call gtk::init first
                 tray: None,
+
+                window_id: Some(_id),
             },
             open.map(Message::WindowOpened),
         )
+    }
+
+    fn settings() -> iced::window::Settings {
+        iced::window::Settings {
+            size: iced::Size {width: 400.0 * 1.618, height: 400.0 },
+            min_size: Some(iced::Size {width: 300.0, height: 400.0 }),
+            ..Default::default()
+        }
     }
 
     pub fn title(&self, window_id: iced::window::Id) -> String {
@@ -139,10 +147,12 @@ impl IracingMonitorGui {
                 // self.windows.insert(id, window);
 
                 // focus_input
+                self.window_id = Some(_id);
                 Task::none()
             }
             Message::WindowClosed(_id) => {
                 log::info!("Window closed");
+                self.window_id = None;
                 Task::none()
             }
             Message::SimUpdated(event) => {
@@ -175,10 +185,26 @@ impl IracingMonitorGui {
                 log::info!("Tray event: {event:?}");
                 match event {
                     tray::TrayEventType::MenuItemClicked(id) => {
-                        if id.0 == "quit" {
-                            Task::done(Message::Quit)
-                        } else {
-                            Task::none()
+                        // if id.0 == "quit" {
+                        //     Task::done(Message::Quit)
+                        // } else {
+                        //     Task::none()
+                        // }
+                        match id.0.as_str() {
+                            // TODO: matching on strings is bad and you should feel bad
+                            "quit" => Task::done(Message::Quit),
+                            "options"  => {
+                                if self.window_id.is_none() {
+                                    log::debug!("Opening settings window");
+                                    let settings = Self::settings();
+                                    let (_id, open) = window::open(settings);
+                                    open.map(Message::WindowOpened)
+                                } else {
+                                    log::info!("Settings window already open");
+                                    Task::none()
+                                }
+                            }
+                            _ => Task::none(),
                         }
                     }
                     tray::TrayEventType::Connected(connection) => {
