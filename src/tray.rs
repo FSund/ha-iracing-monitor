@@ -7,15 +7,16 @@ use iced::futures::{SinkExt, Stream};
 use iced::stream;
 use rumqttc::{AsyncClient, MqttOptions, QoS};
 use serde::Serialize;
+use tray_icon::menu::{AboutMetadata, MenuId, PredefinedMenuItem};
 use std::time::Duration;
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
     TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
 
-// Message type for the application
+// Events from tray (to frontend)
 #[derive(Debug, Clone)]
-pub enum Message {
+pub enum Event {
     TrayEvent(TrayEventType),
 }
 
@@ -23,8 +24,61 @@ pub enum Message {
 #[derive(Debug, Clone)]
 pub enum TrayEventType {
     IconClicked,
-    MenuItemClicked(String),
+    MenuItemClicked(MenuId),
+    Connected(Connection),
 }
+
+// messages to tray (from frontend)
+#[derive(Debug, Clone)]
+pub enum Message {
+    Quit,
+}
+
+#[derive(Debug, Clone)]
+pub struct Connection(mpsc::Sender<Message>);
+
+impl Connection {
+    pub fn send(&mut self, message: Message) {
+        self.0.try_send(message).expect("Send message SimMonitor");
+    }
+}
+
+// #[derive(Debug, Clone, Eq, PartialEq)]
+// pub enum MenuItems {
+//     Options(MenuId),
+//     Quit(MenuId),
+// }
+
+// // implement into menuid for menuitems
+// impl From<MenuItems> for MenuId {
+//     fn from(item: MenuItems) -> Self {
+//         match item {
+//             MenuItems::Options(id) => id,
+//             MenuItems::Quit(id) => id,
+//         }
+//     }
+// }
+
+// impl std::fmt::Display for MenuItems {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         let id = match self {
+//             Self::Options => "Options",
+//             Self::Quit => "Quit",
+//         };
+//         write!(f, "{}", id)
+//     }
+// }
+
+// impl From<MenuId> for MenuItems {
+//     fn from(id: MenuId) -> Self {
+//         match id.0.as_str() {
+//             "Options" => MenuItems::Options,
+//             "Quit" => MenuItems::Quit,
+//             _ => panic!("Unknown menu item: {}", id.0),  // or handle this case differently
+//         }
+//     }
+// }
+
 
 // State for the subscription
 // pub struct TrayState {
@@ -41,6 +95,9 @@ pub enum TrayEventType {
 
 // Create the tray subscription
 pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
+    // On Windows and Linux, an event loop must be running on the thread, on Windows, a win32 event
+    // loop and on Linux, a gtk event loop. It doesn't need to be the main thread but you have to
+    // create the tray icon on the same thread as the event loop.
     #[cfg(target_os = "linux")]
     tokio::spawn(async move {
         gtk::init().unwrap();
@@ -74,24 +131,63 @@ pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
         // let tray_channel = TrayIconEvent::receiver(); // not supported on Linux, so skip it for now
         // let menu_channel = MenuEvent::receiver();
 
-        let (sender, mut receiver) = mpsc::channel(100);
+        let (menu_sender, mut menu_receiver) = mpsc::channel(100);
 
         // Set up the event handler with a move closure that sends to the channel
         MenuEvent::set_event_handler(Some(move |event| {
-            let mut sender = sender.clone();
+            let mut sender = menu_sender.clone();
 
-            // Since the channel sender is async, we need to spawn a task to send
-            tokio::spawn(async move {
-                let _ = sender.send(event).await;
-            });
+            // // Since the channel sender is async, we need to spawn a task to send
+            // tokio::spawn(async move {
+            //     let _ = sender.send(event).await;
+            // });
+
+            // Use a blocking channel send instead of spawning a task
+            log::debug!("Sending menu event {event:?} to channel");
+            if let Ok(()) = sender.try_send(event) {
+                log::debug!("Menu event sent to channel");
+            } else {
+                log::error!("Failed to send menu event to channel");
+            }
         }));
 
-        // Wait for events from either channel
+        let (frontend_sender, mut frontend_receiver) = mpsc::channel(100);
+
+        // Send the sender back to the application
+        output
+            .send(TrayEventType::Connected(Connection(frontend_sender)))
+            .await
+            .expect("Unable to send");
+
+        // // Wait for events from either channel
+        // loop {
+        //     tokio::select! {
+        //         Some(menu_event) = receiver.next() => {
+        //             log::debug!("Received MenuEvent");
+        //             output.send(TrayEventType::MenuItemClicked(menu_event.id.0)).await.expect("Unable to send event");
+        //         }
+        //     }
+        // }
+
         loop {
             tokio::select! {
-                Some(menu_event) = receiver.next() => {
+                // Process events from tray
+                Some(menu_event) = menu_receiver.next() => {
                     log::debug!("Received MenuEvent");
-                    output.send(TrayEventType::MenuItemClicked(menu_event.id.0)).await.expect("Unable to send event");
+                    // Send tray events to frontend
+                    output.send(TrayEventType::MenuItemClicked(menu_event.id))
+                        .await
+                        .expect("Unable to send event");
+                }
+
+                // Process events from frontend
+                Some(message) = frontend_receiver.next() => {
+                    match message {
+                        Message::Quit => {
+                            log::info!("Quitting tray icon");
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -116,8 +212,23 @@ fn load_icon() -> tray_icon::Icon {
 pub fn new_tray_icon() -> TrayIcon {
     // Create tray icon menu
     let menu = tray_icon::menu::Menu::new();
-    let quit_item = tray_icon::menu::MenuItem::new("Quit", true, None);
-    menu.append(&quit_item).unwrap();
+    // TODO: don't hardcode the menu item ids using strings
+    let options_item = tray_icon::menu::MenuItem::with_id("options", "Options", true, None);
+    let quit_item = tray_icon::menu::MenuItem::with_id("quit", "Quit", true, None);
+    menu.append_items(&[
+        &options_item,
+        &PredefinedMenuItem::separator(),
+        // &PredefinedMenuItem::about(
+        //     None,
+        //     Some(AboutMetadata {
+        //         name: Some("tao".to_string()),
+        //         copyright: Some("Copyright tao".to_string()),
+        //         ..Default::default()
+        //     }),
+        // ),
+        // &PredefinedMenuItem::separator(),
+        &quit_item,
+    ]).expect("Failed to append items");
 
     // Load the icon
     let icon = load_icon();
@@ -125,7 +236,7 @@ pub fn new_tray_icon() -> TrayIcon {
     // Build the tray icon
     TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_tooltip("My Iced App")
+        .with_tooltip("iRacing HA Monitor")
         .with_icon(icon)
         .build()
         .unwrap()

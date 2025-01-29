@@ -38,6 +38,11 @@ impl std::fmt::Display for State {
     }
 }
 
+enum TrayState {
+    WaitingFoConnection,
+    Connected(tray::Connection),
+}
+
 pub struct IracingMonitorGui {
     mqtt_host: String,
     mqtt_port: String,
@@ -50,6 +55,7 @@ pub struct IracingMonitorGui {
     sim_state: Option<sim_monitor::SimMonitorState>,
 
     // tray_icon: Option<TrayIcon>,
+    tray: Option<tray::Connection>,
 }
 
 pub fn new_tray_icon() -> TrayIcon {
@@ -101,6 +107,7 @@ impl IracingMonitorGui {
                 sim_state: None,
 
                 // tray_icon: Some(new_tray_icon()), // panic, gtk has hot been initialized, call gtk::init first
+                tray: None,
             },
             open.map(Message::WindowOpened),
         )
@@ -168,8 +175,8 @@ impl IracingMonitorGui {
                 Task::none()
             }
             Message::WindowClosed(_id) => {
-                log::info!("Window closed, closing application!");
-                iced::exit()
+                log::info!("Window closed");
+                Task::none()
             }
             Message::SimUpdated(event) => {
                 log::debug!("SimUpdated message received! ({event})");
@@ -199,10 +206,33 @@ impl IracingMonitorGui {
             }
             Message::TrayEvent(event) => {
                 log::info!("Tray event: {event:?}");
-                Task::none()
+                match event {
+                    tray::TrayEventType::MenuItemClicked(id) => {
+                        if id.0 == "quit" {
+                            Task::done(Message::Quit)
+                        } else {
+                            Task::none()
+                        }
+                    }
+                    tray::TrayEventType::Connected(connection) => {
+                        self.tray = Some(connection);
+                        Task::none()
+                    }
+                    tray::TrayEventType::IconClicked => {
+                        Task::none()
+                    }
+                }
+                // Task::none()
             }
             Message::Quit => {
                 log::info!("Quit application!");
+                
+                // kill tray
+                if let Some(tray) = &mut self.tray {
+                    tray.send(tray::Message::Quit);
+                }
+                self.tray = None;
+
                 iced::exit()
             }
         }
@@ -241,6 +271,7 @@ impl IracingMonitorGui {
                 
                 text(self.state.to_string()).size(16),
                 text(format!("Last message: {last_message}")),
+                button("Quit").on_press(Message::Quit)
                 // Space::new(Length::Shrink, Length::Fixed(16.)),
             ]
         )

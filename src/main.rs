@@ -84,6 +84,9 @@ pub fn main() -> iced::Result {
     
     // Set external crates to INFO level
     // builder.filter_module("rumqttc", LevelFilter::Info);
+
+    // filter messages from iracing_ha_monitor::sim_monitor
+    builder.filter_module("iracing_ha_monitor::sim_monitor", LevelFilter::Info);
     
     // Keep your application at DEBUG level
     builder.filter_module("iracing_ha_monitor", LevelFilter::Debug);
@@ -94,7 +97,11 @@ pub fn main() -> iced::Result {
 
     // using a daemon is overkill for a plain iced application, but might come in
     // handy when trying to implement a tray icon
-    iced::daemon(IracingMonitorGui::title, IracingMonitorGui::update, IracingMonitorGui::view)
+    let result = iced::daemon(IracingMonitorGui::title, IracingMonitorGui::update, IracingMonitorGui::view)
         .subscription(IracingMonitorGui::subscription)
-        .run_with(IracingMonitorGui::new)
+        .run_with(IracingMonitorGui::new);
+
+    gtk::main_quit();
+
+    return result;
 }
