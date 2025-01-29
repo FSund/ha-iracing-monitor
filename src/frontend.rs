@@ -6,7 +6,6 @@ use iced::{keyboard, Element};
 use iced::widget::{button, column, row, text, text_input, Column, Container, Space};
 use iced::window;
 use iced::{Subscription, Task};
-use tray_icon::{TrayIcon, TrayIconBuilder};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -38,11 +37,6 @@ impl std::fmt::Display for State {
     }
 }
 
-enum TrayState {
-    WaitingFoConnection,
-    Connected(tray::Connection),
-}
-
 pub struct IracingMonitorGui {
     mqtt_host: String,
     mqtt_port: String,
@@ -58,24 +52,6 @@ pub struct IracingMonitorGui {
     tray: Option<tray::Connection>,
 }
 
-// pub fn new_tray_icon() -> TrayIcon {
-//     // Create tray icon menu
-//     let menu = tray_icon::menu::Menu::new();
-//     let quit_item = tray_icon::menu::MenuItem::new("Quit", true, None);
-//     menu.append(&quit_item).unwrap();
-
-//     // Load the icon
-//     let icon = load_icon();
-
-//     // Build the tray icon
-//     TrayIconBuilder::new()
-//         .with_menu(Box::new(menu))
-//         .with_tooltip("My Iced App")
-//         .with_icon(icon)
-//         .build()
-//         .unwrap()
-// }
-
 impl IracingMonitorGui {
     pub fn new() -> (Self, Task<Message>) {
         let settings = iced::window::Settings {
@@ -84,15 +60,6 @@ impl IracingMonitorGui {
             ..Default::default()
         };
         let (_id, open) = window::open(settings);
-
-        // #[cfg(target_os = "linux")]
-        // tokio::spawn(async move {
-        //     gtk::init().unwrap();
-    
-        //     // let _tray_icon = new_tray_icon();
-    
-        //     // gtk::main();
-        // });
 
         (
             Self {
@@ -218,20 +185,18 @@ impl IracingMonitorGui {
                         self.tray = Some(connection);
                         Task::none()
                     }
-                    tray::TrayEventType::IconClicked => {
-                        Task::none()
-                    }
+                    // tray::TrayEventType::IconClicked => {
+                    //     Task::none()
+                    // }
                 }
-                // Task::none()
             }
             Message::Quit => {
                 log::info!("Quit application!");
                 
                 // kill tray
-                if let Some(tray) = &mut self.tray {
-                    tray.send(tray::Message::Quit);
-                }
-                self.tray = None;
+                // if let Some(tray) = &mut self.tray {
+                //     tray.send(tray::Message::Quit);
+                // }
 
                 iced::exit()
             }
@@ -299,18 +264,3 @@ impl IracingMonitorGui {
         ])
     }
 }
-
-// fn load_icon() -> tray_icon::Icon {
-//     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/resources/icon.png");
-//     let path = std::path::Path::new(path);
-//     let (icon_rgba, icon_width, icon_height) = {
-//         let image = image::open(path)
-//             .expect("Failed to open icon path")
-//             .into_rgba8();
-//         let (width, height) = image.dimensions();
-//         let rgba = image.into_raw();
-//         (rgba, width, height)
-//     };
-//     tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height)
-//         .expect("Failed to open icon")
-// }
