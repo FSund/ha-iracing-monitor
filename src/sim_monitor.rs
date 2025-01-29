@@ -13,11 +13,11 @@ use std::time::Duration;
 
 #[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct SimMonitorState {
-    connected: bool,
+    pub connected: bool,
     // in_session: bool,
-    current_session_type: String,
+    pub current_session_type: String,
     // session_state: String,
-    timestamp: String,
+    pub timestamp: String,
 }
 
 impl Default for SimMonitorState {
@@ -45,6 +45,8 @@ pub struct SimMonitor {
     mqtt: Option<AsyncClient>,
     last_state: Option<SimMonitorState>,
     mqtt_topic: String,
+
+    mqtt_eventloop_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl SimMonitor {
@@ -58,31 +60,56 @@ impl SimMonitor {
             mqtt: mqtt_client,
             last_state: None,
             mqtt_topic: "homeassistant/sensor/iracing/state".to_string(),
+            mqtt_eventloop_handle: None,
         }
     }
 
     async fn update_mqtt_config(&mut self, mqtt_config: MqttConfig) {
-        self.mqtt = {
-            let mut mqtt_options =
-                MqttOptions::new("iracing-monitor", mqtt_config.host, mqtt_config.port);
-            mqtt_options.set_keep_alive(Duration::from_secs(5));
-            mqtt_options.set_credentials(mqtt_config.user, mqtt_config.password);
-            let (mqtt_client, mut mqtt_eventloop) = AsyncClient::new(mqtt_options, 10);
+        // If we have an existing event loop, abort it before creating a new one
+        if let Some(handle) = self.mqtt_eventloop_handle.take() {
+            log::debug!("Aborting MQTT event loop");
+            handle.abort();
+        }
 
-            // Start MQTT event loop
-            tokio::spawn(async move {
-                while let Ok(_notification) = mqtt_eventloop.poll().await {
-                    // Handle MQTT events if needed
+        let mut mqtt_options = MqttOptions::new("iracing-monitor", mqtt_config.host, mqtt_config.port);
+        mqtt_options.set_keep_alive(Duration::from_secs(5));
+        mqtt_options.set_credentials(mqtt_config.user, mqtt_config.password);
+        let (mqtt_client, mut mqtt_eventloop) = AsyncClient::new(mqtt_options, 10);
+
+        // Store the client
+        self.mqtt = Some(mqtt_client);
+
+        // Spawn and store the event loop handle
+        log::info!("Starting MQTT event loop");
+        self.mqtt_eventloop_handle = Some(tokio::spawn(async move {
+            loop {
+                match mqtt_eventloop.poll().await {
+                    Ok(notification) => {
+                        log::debug!("MQTT event: {:?}", notification);
+                    }
+                    Err(_e) => {
+                        // Just log the error but keep polling - the event loop will handle reconnection
+                        // log::error!("MQTT error (will retry automatically): {:?}", e);
+                    }
                 }
-            });
-            log::info!("MQTT client set up.");
-            Some(mqtt_client)
-        };
+                
+                // Small yield to prevent tight loop
+                // tokio::task::yield_now().await;
 
-        if let Some(mqtt) = self.mqtt.as_mut() {
-            if register_device(mqtt).await.is_err() {
-                log::warn!("Failed to register MQTT device");
+                // TODO: is this the way?
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
+        }));
+
+        log::info!("MQTT client set up.");
+
+        // Register the device
+        if let Some(mqtt) = self.mqtt.as_mut() {
+            if let Err(e) = register_device(mqtt).await {
+                log::warn!("Failed to register MQTT device ({e})");
+            }
+            // Add a small delay to ensure registration is processed
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
     }
 
@@ -90,16 +117,21 @@ impl SimMonitor {
         if Some(state) != self.last_state.as_ref() {
             if let Some(mqtt) = self.mqtt.as_mut() {
                 let payload = serde_json::to_string(&state)?;
-                mqtt.publish(&self.mqtt_topic, QoS::AtLeastOnce, false, payload)
-                    .await
-                    .context("Failed to publish MQTT message")?;
-
-                log::debug!("Published state: {:?}", state);
+                log::debug!("Attempting to publish to topic: {} with payload: {}", &self.mqtt_topic, &payload);
+                
+                match mqtt.publish(&self.mqtt_topic, QoS::AtLeastOnce, false, payload).await {
+                    Ok(_) => {
+                        log::debug!("Successfully published state: {:?}", state);
+                        self.last_state = Some(state.clone());
+                    }
+                    Err(e) => {
+                        log::error!("Failed to publish MQTT message: {}", e);
+                        return Err(e.into());
+                    }
+                }
             } else {
-                log::debug!("Unable to publish state, not connected to MQTT");
-                // anyhow::bail!("No MQTT connection set up");
+                log::debug!("Unable to publish state, missing MQTT config");
             }
-            self.last_state = Some(state.clone());
         }
         Ok(())
     }
@@ -120,6 +152,26 @@ impl SimMonitor {
                 current_session_type: "Disconnected".to_string(),
                 timestamp: Utc::now().to_rfc3339(),
             },
+        }
+    }
+
+    // // Add a cleanup method
+    // pub async fn cleanup(&mut self) {
+    //     if let Some(handle) = self.mqtt_eventloop_handle.take() {
+    //         handle.abort();
+    //     }
+    //     if let Some(mqtt) = self.mqtt.take() {
+    //         if let Err(e) = mqtt.disconnect().await {
+    //             log::warn!("Error disconnecting MQTT client: {}", e);
+    //         }
+    //     }
+    // }
+}
+
+impl Drop for SimMonitor {
+    fn drop(&mut self) {
+        if let Some(handle) = self.mqtt_eventloop_handle.take() {
+            handle.abort();
         }
     }
 }
@@ -175,8 +227,8 @@ impl Connection {
 #[derive(Debug, Clone)]
 pub enum Event {
     Ready(Connection),
-    ConnectedToSim,
-    DisconnectedFromSim,
+    ConnectedToSim(SimMonitorState),
+    DisconnectedFromSim(SimMonitorState),
 }
 
 impl std::fmt::Display for Event {
@@ -184,8 +236,8 @@ impl std::fmt::Display for Event {
         match self {
             // Event::Ready(_) => write!(f, "Ready to connect to iRacing"),
             Event::Ready(_connection) => write!(f, "Ready"),
-            Event::DisconnectedFromSim => write!(f, "iRacing Disconnected"),
-            Event::ConnectedToSim => write!(f, "iRacing Connected"),
+            Event::DisconnectedFromSim(_) => write!(f, "iRacing Disconnected"),
+            Event::ConnectedToSim(_) => write!(f, "iRacing Connected"),
         }
     }
 }
@@ -198,7 +250,6 @@ pub fn connect() -> impl Stream<Item = Event> {
         let (sender, mut receiver) = mpsc::channel(100);
 
         // Send the sender back to the application
-        // output.send(Event::Ready(sender)).await;
         output
             .send(Event::Ready(Connection(sender)))
             .await
@@ -222,9 +273,9 @@ pub fn connect() -> impl Stream<Item = Event> {
                         log::warn!("Failed to publish state: {}", e);
                     }
                     if state.connected {
-                        output.send(Event::ConnectedToSim).await.expect("Unable to send");
+                        output.send(Event::ConnectedToSim(state)).await.expect("Unable to send");
                     } else {
-                        output.send(Event::DisconnectedFromSim).await.expect("Unable to send");
+                        output.send(Event::DisconnectedFromSim(state)).await.expect("Unable to send");
                     }
                 }
             }

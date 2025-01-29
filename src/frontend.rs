@@ -1,21 +1,24 @@
 use crate::sim_monitor;
 
-use iced::keyboard;
-use iced::widget::{button, column, text, text_input, Column};
+use iced::Length::{self, Fill};
+use iced::{keyboard, Element};
+use iced::widget::{button, column, row, text, text_input, Column, Container, Space};
 use iced::window;
 use iced::{Subscription, Task};
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    WindowOpened(window::Id),
+    WindowClosed(window::Id),
+    Quit,
+
     MqttHostChanged(String),
     MqttPortChanged(String),
     MqttUserChanged(String),
     MqttPasswordChanged(String),
-    Connect,
-    WindowOpened(window::Id),
-    WindowClosed(window::Id),
-    SimState(sim_monitor::Event),
-    Quit,
+    ApplyMqttConfig,
+
+    SimUpdated(sim_monitor::Event),
 }
 
 enum State {
@@ -37,14 +40,21 @@ pub struct IracingMonitorGui {
     mqtt_port: String,
     mqtt_user: String,
     mqtt_password: String,
-    state: State,
     port_is_valid: bool,
+
+    state: State,
     connected_to_sim: bool,
+    sim_state: Option<sim_monitor::SimMonitorState>,
 }
 
 impl IracingMonitorGui {
     pub fn new() -> (Self, Task<Message>) {
-        let (_id, open) = window::open(window::Settings::default());
+        let settings = iced::window::Settings {
+            size: iced::Size {width: 400.0 * 1.618, height: 400.0 },
+            min_size: Some(iced::Size {width: 300.0, height: 400.0 }),
+            ..Default::default()
+        };
+        let (_id, open) = window::open(settings);
 
         (
             Self {
@@ -52,9 +62,10 @@ impl IracingMonitorGui {
                 mqtt_port: String::from("1883"),
                 mqtt_user: String::new(),
                 mqtt_password: String::new(),
-                state: State::WaitingForBackendConnection,
                 port_is_valid: true,
+                state: State::WaitingForBackendConnection,
                 connected_to_sim: false,
+                sim_state: None,
             },
             open.map(Message::WindowOpened),
         )
@@ -89,7 +100,7 @@ impl IracingMonitorGui {
                 self.mqtt_password = value;
                 Task::none()
             }
-            Message::Connect => {
+            Message::ApplyMqttConfig => {
                 if let Ok(port) = self.mqtt_port.parse() {
                     let mqtt_config = sim_monitor::MqttConfig {
                         host: self.mqtt_host.clone(),
@@ -125,8 +136,8 @@ impl IracingMonitorGui {
                 log::info!("Window closed, closing application!");
                 iced::exit()
             }
-            Message::SimState(event) => {
-                log::debug!("SimState event received! ({event})");
+            Message::SimUpdated(event) => {
+                log::debug!("SimUpdated message received! ({event})");
                 // self.iracing_connection_status = format!("{event}");
 
                 match event {
@@ -134,17 +145,19 @@ impl IracingMonitorGui {
                         self.state = State::ConnectedToBackend(connection);
                         log::info!("Backend ready, waiting for game");
                     }
-                    sim_monitor::Event::DisconnectedFromSim => {
+                    sim_monitor::Event::DisconnectedFromSim(state) => {
                         if self.connected_to_sim {
                             log::info!("Disconnected from game");
                             self.connected_to_sim = false;
                         }
+                        self.sim_state = Some(state);
                     }
-                    sim_monitor::Event::ConnectedToSim => {
+                    sim_monitor::Event::ConnectedToSim(state) => {
                         if !self.connected_to_sim {
                             log::info!("Connected to game");
                             self.connected_to_sim = true;
                         }
+                        self.sim_state = Some(state);
                     }
                 }
                 Task::none()
@@ -156,35 +169,45 @@ impl IracingMonitorGui {
         }
     }
 
-    pub fn view(&self, _window_id: iced::window::Id) -> Column<Message> {
-        let connect_button =
+    pub fn view(&self, _window_id: iced::window::Id) -> Element<Message> {
+        let apply_mqtt_config_button =
             if self.port_is_valid && matches!(self.state, State::ConnectedToBackend(_)) {
-                button("Connect").padding(10).on_press(Message::Connect)
+                button("Apply MQTT config").on_press(Message::ApplyMqttConfig)
             } else {
-                button("Connect").padding(10)
+                button("Apply MQTT config")
             };
-        column![
-            text("iRacing Home Assistant Monitor").size(28),
-            text_input("MQTT Host", &self.mqtt_host)
-                .on_input(Message::MqttHostChanged)
-                .padding(10)
-                .size(20),
-            text_input("MQTT Port", &self.mqtt_port)
-                .on_input(Message::MqttPortChanged)
-                .padding(10)
-                .size(20),
-            text_input("MQTT User", &self.mqtt_user)
-                .on_input(Message::MqttUserChanged)
-                .padding(10)
-                .size(20),
-            text_input("MQTT Password", &self.mqtt_password)
-                .on_input(Message::MqttPasswordChanged)
-                .padding(10)
-                .size(20)
-                .secure(true),
-            connect_button,
-            text(self.state.to_string()).size(16)
-        ]
+        let last_message = if let Some(sim_state) = &self.sim_state {
+            sim_state.timestamp.clone()
+        } else {
+            "None".to_string()
+        };
+        Container::new(
+            column![
+                text("iRacing Home Assistant Monitor").size(28),
+                Space::new(Length::Shrink, Length::Fixed(16.)),
+
+                text_input("MQTT Host", &self.mqtt_host)
+                    .on_input(Message::MqttHostChanged),
+                text_input("MQTT Port", &self.mqtt_port)
+                    .on_input(Message::MqttPortChanged),
+                text_input("MQTT User", &self.mqtt_user)
+                    .on_input(Message::MqttUserChanged),
+                text_input("MQTT Password", &self.mqtt_password)
+                    .on_input(Message::MqttPasswordChanged)
+                    .secure(true),
+                Space::new(Length::Shrink, Length::Fixed(16.)),
+
+                apply_mqtt_config_button,
+                Space::new(Length::Shrink, Length::Fill),
+                
+                text(self.state.to_string()).size(16),
+                text(format!("Last message: {last_message}")),
+                // Space::new(Length::Shrink, Length::Fixed(16.)),
+            ]
+        )
+        .padding(10)
+        .center_x(Fill)
+        .into()
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -201,7 +224,7 @@ impl IracingMonitorGui {
         Subscription::batch(vec![
             window::close_events().map(Message::WindowClosed),
             keyboard::on_key_press(handle_hotkey),
-            Subscription::run(sim_monitor::connect).map(Message::SimState),
+            Subscription::run(sim_monitor::connect).map(Message::SimUpdated),
         ])
     }
 }
