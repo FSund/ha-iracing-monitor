@@ -82,6 +82,10 @@ pub fn main() -> iced::Result {
 
         gtk::main();
     });
+    // this might lead to duplicate tray icons on Windows
+    // try this approach in that case: https://github.com/tauri-apps/tray-icon/blob/b94b96f2df36acfef38d8fda28e4cf2858338eeb/examples/winit.rs#L71-L77
+    #[cfg(not(target_os = "linux"))]
+    let _tray_icon = tray::new_tray_icon();
 
     // env_logger::init();
     let mut builder = Builder::from_default_env();
