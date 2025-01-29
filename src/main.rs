@@ -70,14 +70,18 @@ pub fn main() -> iced::Result {
     // Since winit doesn't use gtk on Linux, and we need gtk for
     // the tray icon to show up, we need to spawn a thread
     // where we initialize gtk and create the tray_icon
-    // #[cfg(target_os = "linux")]
-    // std::thread::spawn(|| {
-    //     gtk::init().unwrap();
+    #[cfg(target_os = "linux")]
+    std::thread::spawn(|| {
+        gtk::init().unwrap();
 
-    //     let _tray_icon = frontend::new_tray_icon();
+        // On Windows and Linux, an event loop must be running on the thread, on Windows, a win32
+        // event loop and on Linux, a gtk event loop. It doesn't need to be the main thread but you
+        // have to create the tray icon on the same thread as the event loop.
+        // let _tray_event_receiver = tray::create_tray_icon();
+        let _tray_icon = tray::new_tray_icon();
 
-    //     gtk::main();
-    // });
+        gtk::main();
+    });
 
     // env_logger::init();
     let mut builder = Builder::from_default_env();
@@ -97,11 +101,7 @@ pub fn main() -> iced::Result {
 
     // using a daemon is overkill for a plain iced application, but might come in
     // handy when trying to implement a tray icon
-    let result = iced::daemon(IracingMonitorGui::title, IracingMonitorGui::update, IracingMonitorGui::view)
+    iced::daemon(IracingMonitorGui::title, IracingMonitorGui::update, IracingMonitorGui::view)
         .subscription(IracingMonitorGui::subscription)
-        .run_with(IracingMonitorGui::new);
-
-    gtk::main_quit();
-
-    return result;
+        .run_with(IracingMonitorGui::new)
 }

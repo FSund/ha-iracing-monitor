@@ -58,23 +58,23 @@ pub struct IracingMonitorGui {
     tray: Option<tray::Connection>,
 }
 
-pub fn new_tray_icon() -> TrayIcon {
-    // Create tray icon menu
-    let menu = tray_icon::menu::Menu::new();
-    let quit_item = tray_icon::menu::MenuItem::new("Quit", true, None);
-    menu.append(&quit_item).unwrap();
+// pub fn new_tray_icon() -> TrayIcon {
+//     // Create tray icon menu
+//     let menu = tray_icon::menu::Menu::new();
+//     let quit_item = tray_icon::menu::MenuItem::new("Quit", true, None);
+//     menu.append(&quit_item).unwrap();
 
-    // Load the icon
-    let icon = load_icon();
+//     // Load the icon
+//     let icon = load_icon();
 
-    // Build the tray icon
-    TrayIconBuilder::new()
-        .with_menu(Box::new(menu))
-        .with_tooltip("My Iced App")
-        .with_icon(icon)
-        .build()
-        .unwrap()
-}
+//     // Build the tray icon
+//     TrayIconBuilder::new()
+//         .with_menu(Box::new(menu))
+//         .with_tooltip("My Iced App")
+//         .with_icon(icon)
+//         .build()
+//         .unwrap()
+// }
 
 impl IracingMonitorGui {
     pub fn new() -> (Self, Task<Message>) {
@@ -300,17 +300,17 @@ impl IracingMonitorGui {
     }
 }
 
-fn load_icon() -> tray_icon::Icon {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/resources/icon.png");
-    let path = std::path::Path::new(path);
-    let (icon_rgba, icon_width, icon_height) = {
-        let image = image::open(path)
-            .expect("Failed to open icon path")
-            .into_rgba8();
-        let (width, height) = image.dimensions();
-        let rgba = image.into_raw();
-        (rgba, width, height)
-    };
-    tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height)
-        .expect("Failed to open icon")
-}
+// fn load_icon() -> tray_icon::Icon {
+//     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/resources/icon.png");
+//     let path = std::path::Path::new(path);
+//     let (icon_rgba, icon_width, icon_height) = {
+//         let image = image::open(path)
+//             .expect("Failed to open icon path")
+//             .into_rgba8();
+//         let (width, height) = image.dimensions();
+//         let rgba = image.into_raw();
+//         (rgba, width, height)
+//     };
+//     tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height)
+//         .expect("Failed to open icon")
+// }

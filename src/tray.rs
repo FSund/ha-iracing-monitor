@@ -16,12 +16,6 @@ use tray_icon::{
 
 // Events from tray (to frontend)
 #[derive(Debug, Clone)]
-pub enum Event {
-    TrayEvent(TrayEventType),
-}
-
-// Types of tray events we'll handle
-#[derive(Debug, Clone)]
 pub enum TrayEventType {
     IconClicked,
     MenuItemClicked(MenuId),
@@ -43,67 +37,17 @@ impl Connection {
     }
 }
 
-// #[derive(Debug, Clone, Eq, PartialEq)]
-// pub enum MenuItems {
-//     Options(MenuId),
-//     Quit(MenuId),
-// }
-
-// // implement into menuid for menuitems
-// impl From<MenuItems> for MenuId {
-//     fn from(item: MenuItems) -> Self {
-//         match item {
-//             MenuItems::Options(id) => id,
-//             MenuItems::Quit(id) => id,
-//         }
-//     }
-// }
-
-// impl std::fmt::Display for MenuItems {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         let id = match self {
-//             Self::Options => "Options",
-//             Self::Quit => "Quit",
-//         };
-//         write!(f, "{}", id)
-//     }
-// }
-
-// impl From<MenuId> for MenuItems {
-//     fn from(id: MenuId) -> Self {
-//         match id.0.as_str() {
-//             "Options" => MenuItems::Options,
-//             "Quit" => MenuItems::Quit,
-//             _ => panic!("Unknown menu item: {}", id.0),  // or handle this case differently
-//         }
-//     }
-// }
-
-
-// State for the subscription
-// pub struct TrayState {
-//     tray_icon: Option<TrayIcon>,
-// }
-
-// impl TrayState {
-//     pub fn new() -> Self {
-//         Self {
-//             tray_icon: None,
-//         }
-//     }
-// }
-
 // Create the tray subscription
 pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
     // On Windows and Linux, an event loop must be running on the thread, on Windows, a win32 event
     // loop and on Linux, a gtk event loop. It doesn't need to be the main thread but you have to
     // create the tray icon on the same thread as the event loop.
-    #[cfg(target_os = "linux")]
-    tokio::spawn(async move {
-        gtk::init().unwrap();
-        let _tray_icon = new_tray_icon();
-        gtk::main();
-    });
+    // #[cfg(target_os = "linux")]
+    // tokio::spawn(async move {
+    //     gtk::init().unwrap();
+    //     let _tray_icon = new_tray_icon();
+    //     gtk::main();
+    // });
 
     // let mut state = TrayState::new();
     // if state.tray_icon.is_none() {
@@ -125,31 +69,33 @@ pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
 
     //     state.tray_icon = Some(tray_icon);
     // }
+
+    let (menu_sender, mut menu_receiver) = mpsc::channel(100);
+
+    // Set up the event handler with a move closure that sends to the channel
+    MenuEvent::set_event_handler(Some(move |event| {
+        let mut sender = menu_sender.clone();
+
+        // // Since the channel sender is async, we need to spawn a task to send
+        // tokio::spawn(async move {
+        //     let _ = sender.send(event).await;
+        // });
+
+        // Use a blocking channel send instead of spawning a task
+        log::debug!("Sending menu event {event:?} to channel");
+        if let Ok(()) = sender.try_send(event) {
+            log::debug!("Menu event sent to channel");
+        } else {
+            log::error!("Failed to send menu event to channel");
+        }
+    }));
     
     stream::channel(100, |mut output| async move {
         // Create channels for events
         // let tray_channel = TrayIconEvent::receiver(); // not supported on Linux, so skip it for now
         // let menu_channel = MenuEvent::receiver();
 
-        let (menu_sender, mut menu_receiver) = mpsc::channel(100);
-
-        // Set up the event handler with a move closure that sends to the channel
-        MenuEvent::set_event_handler(Some(move |event| {
-            let mut sender = menu_sender.clone();
-
-            // // Since the channel sender is async, we need to spawn a task to send
-            // tokio::spawn(async move {
-            //     let _ = sender.send(event).await;
-            // });
-
-            // Use a blocking channel send instead of spawning a task
-            log::debug!("Sending menu event {event:?} to channel");
-            if let Ok(()) = sender.try_send(event) {
-                log::debug!("Menu event sent to channel");
-            } else {
-                log::error!("Failed to send menu event to channel");
-            }
-        }));
+        
 
         let (frontend_sender, mut frontend_receiver) = mpsc::channel(100);
 
@@ -189,6 +135,11 @@ pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
                         }
                     }
                 }
+                // else => {
+                //     // break out of loop if no more events
+                //     log::debug!("No events");
+                //     break;
+                // }
             }
         }
     })
@@ -240,4 +191,31 @@ pub fn new_tray_icon() -> TrayIcon {
         .with_icon(icon)
         .build()
         .unwrap()
+}
+
+pub fn create_tray_icon() -> TrayIcon {
+    let tray_icon = new_tray_icon();
+    
+    let (menu_sender, mut menu_receiver) = mpsc::channel(100);
+
+    // Set up the event handler with a move closure that sends to the channel
+    MenuEvent::set_event_handler(Some(move |event| {
+        let mut sender = menu_sender.clone();
+
+        // Since the channel sender is async, we need to spawn a task to send
+        tokio::spawn(async move {
+            log::debug!("Sending menu event {event:?} to channel");
+            let _ = sender.send(event).await;
+        });
+
+        // Use a blocking channel send instead of spawning a task
+        // log::debug!("Sending menu event {event:?} to channel");
+        // if let Ok(()) = sender.try_send(event) {
+        //     log::debug!("Menu event sent to channel");
+        // } else {
+        //     log::error!("Failed to send menu event to channel");
+        // }
+    }));
+
+    tray_icon
 }
