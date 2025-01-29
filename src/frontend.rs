@@ -260,9 +260,21 @@ impl IracingMonitorGui {
                 apply_mqtt_config_button,
                 Space::new(Length::Shrink, Length::Fill),
                 
-                text(self.state.to_string()).size(16),
-                text(format!("Last message: {last_message}")),
-                button("Quit").on_press(Message::Quit)
+                row![
+                    column![
+                        text(self.state.to_string()).size(16),
+                        text(format!("Last message: {last_message}")),
+                    ],
+                    Space::new(Length::Fill, Length::Shrink),
+                    button("Quit").on_press(Message::Quit),
+                ].align_y(iced::alignment::Vertical::Bottom)
+                
+                // Space::new(Length::Shrink, Length::Fixed(16.)),
+                // row![
+                    
+                //     Space::new(Length::Fill, Length::Shrink),
+                //     button("Quit").on_press(Message::Quit),
+                // ],
                 // Space::new(Length::Shrink, Length::Fixed(16.)),
             ]
         )
