@@ -263,6 +263,7 @@ impl IracingMonitorGui {
                 row![
                     column![
                         text(self.state.to_string()).size(16),
+                        text(format!("Session type: {}", if let Some(sim_state) = &self.sim_state { sim_state.current_session_type.clone() } else { "None".to_string() })),
                         text(format!("Last message: {last_message}")),
                     ],
                     Space::new(Length::Fill, Length::Shrink),
