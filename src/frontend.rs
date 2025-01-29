@@ -1,10 +1,12 @@
 use crate::sim_monitor;
+use crate::tray;
 
 use iced::Length::{self, Fill};
 use iced::{keyboard, Element};
 use iced::widget::{button, column, row, text, text_input, Column, Container, Space};
 use iced::window;
 use iced::{Subscription, Task};
+use tray_icon::{TrayIcon, TrayIconBuilder};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -19,6 +21,7 @@ pub enum Message {
     ApplyMqttConfig,
 
     SimUpdated(sim_monitor::Event),
+    TrayEvent(tray::TrayEventType),
 }
 
 enum State {
@@ -45,6 +48,26 @@ pub struct IracingMonitorGui {
     state: State,
     connected_to_sim: bool,
     sim_state: Option<sim_monitor::SimMonitorState>,
+
+    // tray_icon: Option<TrayIcon>,
+}
+
+pub fn new_tray_icon() -> TrayIcon {
+    // Create tray icon menu
+    let menu = tray_icon::menu::Menu::new();
+    let quit_item = tray_icon::menu::MenuItem::new("Quit", true, None);
+    menu.append(&quit_item).unwrap();
+
+    // Load the icon
+    let icon = load_icon();
+
+    // Build the tray icon
+    TrayIconBuilder::new()
+        .with_menu(Box::new(menu))
+        .with_tooltip("My Iced App")
+        .with_icon(icon)
+        .build()
+        .unwrap()
 }
 
 impl IracingMonitorGui {
@@ -56,6 +79,15 @@ impl IracingMonitorGui {
         };
         let (_id, open) = window::open(settings);
 
+        // #[cfg(target_os = "linux")]
+        // tokio::spawn(async move {
+        //     gtk::init().unwrap();
+    
+        //     // let _tray_icon = new_tray_icon();
+    
+        //     // gtk::main();
+        // });
+
         (
             Self {
                 mqtt_host: String::from("localhost"),
@@ -63,9 +95,12 @@ impl IracingMonitorGui {
                 mqtt_user: String::new(),
                 mqtt_password: String::new(),
                 port_is_valid: true,
+                
                 state: State::WaitingForBackendConnection,
                 connected_to_sim: false,
                 sim_state: None,
+
+                // tray_icon: Some(new_tray_icon()), // panic, gtk has hot been initialized, call gtk::init first
             },
             open.map(Message::WindowOpened),
         )
@@ -162,6 +197,10 @@ impl IracingMonitorGui {
                 }
                 Task::none()
             }
+            Message::TrayEvent(event) => {
+                log::info!("Tray event: {event:?}");
+                Task::none()
+            }
             Message::Quit => {
                 log::info!("Quit application!");
                 iced::exit()
@@ -225,6 +264,22 @@ impl IracingMonitorGui {
             window::close_events().map(Message::WindowClosed),
             keyboard::on_key_press(handle_hotkey),
             Subscription::run(sim_monitor::connect).map(Message::SimUpdated),
+            Subscription::run(tray::tray_subscription).map(Message::TrayEvent),
         ])
     }
+}
+
+fn load_icon() -> tray_icon::Icon {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/resources/icon.png");
+    let path = std::path::Path::new(path);
+    let (icon_rgba, icon_width, icon_height) = {
+        let image = image::open(path)
+            .expect("Failed to open icon path")
+            .into_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        (rgba, width, height)
+    };
+    tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height)
+        .expect("Failed to open icon")
 }

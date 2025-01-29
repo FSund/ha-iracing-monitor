@@ -1,6 +1,7 @@
 mod iracing_client;
 mod frontend;
 mod sim_monitor;
+mod tray;
 
 // use iracing_client::SimClient;
 // use anyhow::{Context, Result};
@@ -66,6 +67,18 @@ use frontend::IracingMonitorGui;
 
 
 pub fn main() -> iced::Result {
+    // Since winit doesn't use gtk on Linux, and we need gtk for
+    // the tray icon to show up, we need to spawn a thread
+    // where we initialize gtk and create the tray_icon
+    // #[cfg(target_os = "linux")]
+    // std::thread::spawn(|| {
+    //     gtk::init().unwrap();
+
+    //     let _tray_icon = frontend::new_tray_icon();
+
+    //     gtk::main();
+    // });
+
     // env_logger::init();
     let mut builder = Builder::from_default_env();
     
