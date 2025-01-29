@@ -11,13 +11,6 @@ impl IracingClient {
     fn is_connected(&self) -> bool {
         self.client.is_some()
     }
-}
-
-#[async_trait::async_trait]
-impl SimClient for IracingClient {
-    fn new() -> Self {
-        Self { client: None }
-    }
 
     async fn connect(&mut self) -> bool {
         if !self.is_connected() {
@@ -34,6 +27,13 @@ impl SimClient for IracingClient {
             };
         }
         self.is_connected()
+    }
+}
+
+#[async_trait::async_trait]
+impl SimClient for IracingClient {
+    fn new() -> Self {
+        Self { client: None }
     }
 
     async fn get_current_session_type(&mut self) -> Option<String> {
