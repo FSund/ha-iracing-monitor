@@ -8,7 +8,7 @@ use iced::futures::{SinkExt, Stream};
 use iced::stream;
 use iracing_client::SimClient;
 use rumqttc::{AsyncClient, MqttOptions, QoS};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 #[derive(Debug, Serialize, Clone, PartialEq)]
@@ -32,12 +32,23 @@ impl Default for SimMonitorState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MqttConfig {
     pub host: String,
     pub port: u16,
     pub user: String,
     pub password: String,
+}
+
+impl Default for MqttConfig {
+    fn default() -> Self {
+        Self {
+            host: "localhost".to_string(),
+            port: 1883,
+            user: "".to_string(),
+            password: "".to_string(),
+        }
+    }
 }
 
 pub struct SimMonitor {

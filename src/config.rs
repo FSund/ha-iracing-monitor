@@ -1,16 +1,20 @@
 use std::collections::HashMap;
-use std::sync::mpsc;
+// use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::sync::RwLock;
 use std::time::Duration;
 use std::path::{Path, PathBuf};
 use std::fs;
 
+use tokio::sync::mpsc;
 use config::{Config, File};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use iced::futures::{SinkExt, Stream};
 use serde::Deserialize;
 use serde::Serialize;
+
+use crate::sim_monitor::MqttConfig;
+
 // use rumqttc::{AsyncClient, MqttOptions, QoS};
 // use serde::Serialize;
 // use thiserror::Error;
@@ -25,68 +29,85 @@ use serde::Serialize;
 //     IoError(#[from] std::io::Error),
 // }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AppConfig {
-    pub mqtt_host: String,
-    pub mqtt_port: u16,
+    pub mqtt: MqttConfig,
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            mqtt_host: "localhost".to_string(),
-            mqtt_port: 1883,
-        }
-    }
-}
+// impl Default for AppConfig {
+//     fn default() -> Self {
+//         Self {
+//             mqtt: MqttConfig::default(),
+//         }
+//     }
+// }
 
 impl AppConfig {
-    pub fn load_or_create(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
-        // Create default config if file doesn't exist
-        if !path.exists() {
-            let config = Self::default();
-            config.save(path)?;
-            return Ok(config);
-        }
+    // fn load_or_create(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    //     // Create default config if file doesn't exist
+    //     if !path.exists() {
+    //         let config = Self::default();
+    //         config.save(path)?;
+    //         return Ok(config);
+    //     }
 
-        // Read existing config
-        let content = fs::read_to_string(path)?;
-        let existing_table: toml::Table = toml::from_str(&content)?;
+    //     // Read existing config
+    //     let content = fs::read_to_string(path)?;
+    //     let existing_table: toml::Table = toml::from_str(&content)?;
 
-        // Create a new config with default values
-        let default_config = Self::default();
-        let default_table = toml::to_string(&default_config)?.parse::<toml::Table>()?;
+    //     // Create a new config with default values
+    //     let default_config = Self::default();
+    //     let default_table = toml::to_string(&default_config)?.parse::<toml::Table>()?;
 
-        // Merge existing values with defaults
-        let merged_table = Self::merge_tables(existing_table, default_table);
+    //     // Merge existing values with defaults
+    //     let (merged_table, missing_values) = Self::merge_tables(existing_table, default_table);
         
-        // Convert merged table back to config
-        let merged_config: Self = toml::from_str(&toml::to_string(&merged_table)?)?;
+    //     // Convert merged table back to config
+    //     let merged_config: Self = toml::from_str(&toml::to_string(&merged_table)?)?;
         
-        // Save the merged config back to file to add any missing fields
-        merged_config.save(path)?;
+    //     // Save the merged config back to file to add any missing fields
+    //     if missing_values {
+    //         merged_config.save(path)?;
+    //     }
 
-        Ok(merged_config)
-    }
+    //     Ok(merged_config)
+    // }
 
-    fn merge_tables(existing: toml::Table, default: toml::Table) -> toml::Table {
-        let mut merged = toml::Table::new();
+    // fn wat() {
+    //     let app_config = 
+    //         settings()
+    //         .read()
+    //         .unwrap()
+    //         .clone()
+    //         .try_deserialize::<AppConfig>()
+    //         .unwrap();
+        
+    //     // convert to toml
+    //     let toml_string = toml::to_string_pretty(&app_config).unwrap();
+    // }
 
-        // Add all fields from default config
-        for (key, default_value) in default.iter() {
-            if let Some(existing_value) = existing.get(key) {
-                // Use existing value if present
-                merged.insert(key.clone(), existing_value.clone());
-            } else {
-                // Use default value if field is missing
-                merged.insert(key.clone(), default_value.clone());
-            }
-        }
+    // fn merge_tables(existing: toml::Table, default: toml::Table) -> (toml::Table, bool) {
+    //     let mut merged = toml::Table::new();
 
-        merged
-    }
+    //     // Add all fields from default config
+    //     let mut missing_values = false;
+    //     for (key, default_value) in default.iter() {
+    //         if let Some(existing_value) = existing.get(key) {
+    //             // Use existing value if present
+    //             merged.insert(key.clone(), existing_value.clone());
+    //         } else {
+    //             // Use default value if field is missing
+    //             log::debug!("Adding default value for {key}");
+    //             missing_values = true;
+    //             merged.insert(key.clone(), default_value.clone());
+    //         }
+    //     }
 
-    pub fn save(&self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    //     (merged, missing_values)
+    // }
+
+    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let path = get_config_path();
         let toml_string = toml::to_string_pretty(self)?;
         fs::write(path, toml_string)?;
         Ok(())
@@ -109,19 +130,23 @@ fn get_config_path() -> PathBuf {
 }
 
 pub fn get_app_config() -> AppConfig {
-    settings()
+    let settings = settings()
         .read()
-        .unwrap()
+        .expect("Failed to read settings");
+
+    log::debug!("Settings: {:?}", settings.clone());
+
+    settings
         .clone()
         .try_deserialize::<AppConfig>()
-        .unwrap()
+        .expect("Failed to deserialize settings")
 }
 
 fn settings() -> &'static RwLock<Config> {
     static CONFIG: OnceLock<RwLock<Config>> = OnceLock::new();
     CONFIG.get_or_init(|| {
+        log::debug!("Initializing settings");
         let settings = load();
-
         RwLock::new(settings)
     })
 }
@@ -133,16 +158,18 @@ fn refresh() {
 fn load() -> Config {
     let config_path = get_config_path();
 
-    // create file if it doesn't exist
+    // Create file if it doesn't exist
     if !config_path.exists() {
         log::debug!("Creating config file {config_path:?}");
         std::fs::write(&config_path, "").expect("Failed to create config file");
 
         // Write default config to file
-        // let default_app_config = AppConfig::default();
-        // toml::to_string(&default_app_config).expect("Failed to serialize default config");
-        AppConfig::load_or_create(&config_path).expect("Failed to load or create config");
+        let default_app_config = AppConfig::default();
+        default_app_config.save().expect("Failed to save default config");
     }
+
+    // Ensure the config file exists, and all fields are present
+    // let _app_config = AppConfig::load_or_create(&config_path).expect("Failed to load or create config");
 
     Config::builder()
         .add_source(File::from(config_path))
@@ -171,11 +198,21 @@ pub enum Event {
 pub fn watch_config() -> impl Stream<Item = Event> {
     iced::stream::channel(100, |mut output| async move {
         // Create a channel to receive the file system events
-        let (tx, rx) = mpsc::channel();
+        let (tx, mut rx) = mpsc::channel(100);
 
         // Create the file system watcher
         let mut watcher: RecommendedWatcher = Watcher::new(
-            tx,
+            move |event| {
+                let sender = tx.clone();
+        
+                // Use a blocking channel send instead of spawning a task (no tokio runtime available?)
+                log::debug!("Sending config event {event:?} to channel");
+                if let Ok(()) = sender.try_send(event) {
+                    log::debug!("Config event sent to channel");
+                } else {
+                    log::error!("Failed to send config event to channel");
+                }
+            },
             notify::Config::default().with_poll_interval(Duration::from_secs(2)),
         )
         .expect("Failed to create watcher");
@@ -191,35 +228,38 @@ pub fn watch_config() -> impl Stream<Item = Event> {
             .expect("Failed to watch path");
 
         loop {
-            match rx.recv() {
-                Ok(Ok(notify::Event {
-                    kind: notify::event::EventKind::Modify(_),
-                    ..
-                })) => {
-                    log::info!("Config file modified; refreshing configuration ...");
-                    refresh();
-                    show();
-                    output
-                        .send(Event::ConfigurationUpdated(get_app_config()))
-                        .await
-                        .expect("Failed to send event");
-                }
+            tokio::select! {
+                Some(res) = rx.recv() => {
+                    match res {
+                        Ok(notify::Event {
+                            kind: notify::event::EventKind::Modify(_),
+                            ..
+                        }) => {
+                            log::info!("Config file modified; refreshing configuration ...");
+                            refresh();
+                            show();
+                            output
+                                .send(Event::ConfigurationUpdated(get_app_config()))
+                                .await
+                                .expect("Failed to send event");
+                        }
 
-                Ok(Err(e)) => {
-                    log::error!("Watch error: {e:?}");
-                    output
-                        .send(Event::WatchError(e.to_string()))
-                        .await
-                        .expect("Failed to send error event");
+                        Err(e) => {
+                            log::error!("Watch error: {e:?}");
+                            output
+                                .send(Event::WatchError(e.to_string()))
+                                .await
+                                .expect("Failed to send error event");
+                        }
+                        
+                        _ => {
+                            // Ignore other events
+                        }
+                    }
                 }
-
-                Err(e) => {
-                    log::error!("Channel error: {e:?}");
+                else => {
+                    log::error!("Channel closed");
                     break;
-                }
-
-                _ => {
-                    // Ignore other events
                 }
             }
         }

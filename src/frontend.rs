@@ -42,6 +42,8 @@ impl std::fmt::Display for State {
 }
 
 pub struct IracingMonitorGui {
+    config: config::AppConfig,
+
     mqtt_host: String,
     mqtt_port: String,
     mqtt_user: String,
@@ -61,14 +63,17 @@ pub struct IracingMonitorGui {
 impl IracingMonitorGui {
     pub fn new() -> (Self, Task<Message>) {
         let settings = Self::window_settings();
+        let config = config::get_app_config();
         let (id, open) = window::open(settings);
 
         (
             Self {
-                mqtt_host: String::from("localhost"),
-                mqtt_port: String::from("1883"),
-                mqtt_user: String::new(),
-                mqtt_password: String::new(),
+                config: config.clone(),
+
+                mqtt_host: config.mqtt.host,
+                mqtt_port: config.mqtt.port.to_string(),
+                mqtt_user: config.mqtt.user,
+                mqtt_password: config.mqtt.password,
                 port_is_valid: true,
                 
                 state: State::WaitingForBackendConnection,
@@ -130,13 +135,14 @@ impl IracingMonitorGui {
             }
             Message::ApplyMqttConfig => {
                 if let Ok(port) = self.mqtt_port.parse() {
-                    let mqtt_config = sim_monitor::MqttConfig {
-                        host: self.mqtt_host.clone(),
-                        port,
-                        user: self.mqtt_user.clone(),
-                        password: self.mqtt_password.clone(),
-                    };
-                    let msg = sim_monitor::Message::UpdateConfig(mqtt_config);
+                    self.config.mqtt.host = self.mqtt_host.clone();
+                    self.config.mqtt.port = port;
+                    self.config.mqtt.user = self.mqtt_user.clone();
+                    self.config.mqtt.password = self.mqtt_password.clone();
+
+                    self.config.save().expect("Failed to save config to file");
+
+                    let msg = sim_monitor::Message::UpdateConfig(self.config.mqtt.clone());
                     match &mut self.state {
                         State::ConnectedToBackend(connection) => {
                             connection.send(msg);
