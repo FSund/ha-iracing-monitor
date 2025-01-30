@@ -8,7 +8,7 @@ anyhow = "1.0.95"
 async-trait = "0.1.85"
 chrono = "0.4.39"
 env_logger = "0.11.6"
-iced = {version = "0.13.1", features = ["tokio"] }
+iced = {version = "0.13.1", features = ["tokio", "image"] }
 image = "0.25.5"
 #iracing = "0.4.1"
 #iracing-telem = "0.2.1"

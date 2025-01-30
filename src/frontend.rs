@@ -1,5 +1,6 @@
 use crate::sim_monitor;
 use crate::tray;
+use crate::resources;
 
 use iced::Length::{self, Fill};
 use iced::{keyboard, Element};
@@ -56,8 +57,8 @@ pub struct IracingMonitorGui {
 
 impl IracingMonitorGui {
     pub fn new() -> (Self, Task<Message>) {
-        let settings = Self::settings();
-        let (_id, open) = window::open(settings);
+        let settings = Self::window_settings();
+        let (id, open) = window::open(settings);
 
         (
             Self {
@@ -74,13 +75,13 @@ impl IracingMonitorGui {
                 // tray_icon: Some(new_tray_icon()), // panic, gtk has hot been initialized, call gtk::init first
                 tray: None,
 
-                window_id: Some(_id),
+                window_id: Some(id),
             },
             open.map(Message::WindowOpened),
         )
     }
 
-    fn settings() -> iced::window::Settings {
+    fn window_settings() -> iced::window::Settings {
         iced::window::Settings {
             size: iced::Size {width: 400.0 * 1.618, height: 400.0 },
             min_size: Some(iced::Size {width: 300.0, height: 400.0 }),
@@ -89,9 +90,15 @@ impl IracingMonitorGui {
         }
     }
 
-    pub fn title(&self, window_id: iced::window::Id) -> String {
+    pub fn theme(&self, _window_id: iced::window::Id) -> iced::Theme {
+        // iced::Theme::Oxocarbon
+        iced::Theme::Dark
+    }
+
+    pub fn title(&self, _window_id: iced::window::Id) -> String {
         // "IRacingMonitor - Iced".to_string()
-        format!("IRacingMonitor {:?}", window_id)
+        // format!("IRacingMonitor {:?}", window_id)
+        "iRacingMonitor".to_string()
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -141,14 +148,10 @@ impl IracingMonitorGui {
 
                 Task::none()
             }
-            Message::WindowOpened(_id) => {
-                // let window = Window::new(self.windows.len() + 1);
-                // let focus_input = text_input::focus(format!("input-{id}"));
-
-                // self.windows.insert(id, window);
-
-                // focus_input
-                self.window_id = Some(_id);
+            Message::WindowOpened(id) => {
+                if id != self.window_id.unwrap() {
+                    log::warn!("Window ID mismatch");
+                }
                 Task::none()
             }
             Message::WindowClosed(_id) => {
@@ -194,17 +197,7 @@ impl IracingMonitorGui {
                         match id.0.as_str() {
                             // TODO: matching on strings is bad and you should feel bad
                             "quit" => Task::done(Message::Quit),
-                            "options"  => {
-                                if self.window_id.is_none() {
-                                    log::debug!("Opening settings window");
-                                    let settings = Self::settings();
-                                    let (_id, open) = window::open(settings);
-                                    open.map(Message::WindowOpened)
-                                } else {
-                                    log::info!("Settings window already open");
-                                    Task::none()
-                                }
-                            }
+                            "options"  => self.open_window(),
                             _ => Task::none(),
                         }
                     }
@@ -213,7 +206,7 @@ impl IracingMonitorGui {
                         Task::none()
                     }
                     // tray::TrayEventType::IconClicked => {
-                    //     Task::none()
+                    //     self.open_window()
                     // }
                 }
             }
@@ -221,12 +214,25 @@ impl IracingMonitorGui {
                 log::info!("Quit application!");
                 
                 // kill tray
-                // if let Some(tray) = &mut self.tray {
-                //     tray.send(tray::Message::Quit);
-                // }
+                if let Some(tray) = &mut self.tray {
+                    tray.send(tray::Message::Quit);
+                }
 
                 iced::exit()
             }
+        }
+    }
+
+    fn open_window(&mut self) -> Task<Message> {
+        if self.window_id.is_none() {
+            log::debug!("Opening settings window");
+            let settings = Self::window_settings();
+            let (id, open) = window::open(settings);
+            self.window_id = Some(id);
+            open.map(Message::WindowOpened)
+        } else {
+            log::info!("Settings window already open");
+            Task::none()
         }
     }
 
@@ -306,17 +312,7 @@ impl IracingMonitorGui {
 }
 
 fn load_icon() -> Option<iced::window::Icon> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/resources/icon.png");
-    let path = std::path::Path::new(path);
-    let (icon_rgba, icon_width, icon_height) = {
-        let image = image::open(path)
-            .expect("Failed to open icon path")
-            .into_rgba8();
-        let (width, height) = image.dimensions();
-        let rgba = image.into_raw();
-        (rgba, width, height)
-    };
-    match iced::window::icon::from_rgba(icon_rgba, icon_width, icon_height) {
+    match iced::window::icon::from_file_data(resources::ICON_BYTES, None) {
         Ok(icon) => Some(icon),
         Err(e) => {
             log::warn!("Failed to load icon: {e}");

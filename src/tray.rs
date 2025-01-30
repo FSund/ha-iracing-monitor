@@ -1,3 +1,5 @@
+use crate::resources;
+
 use iced::futures::channel::mpsc;
 use iced::futures::StreamExt;
 use iced::futures::{SinkExt, Stream};
@@ -8,6 +10,7 @@ use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
     TrayIcon, TrayIconBuilder, TrayIconEvent,
 };
+use anyhow::Result;
 
 // Events from tray (to frontend)
 #[derive(Debug, Clone)]
@@ -49,7 +52,7 @@ pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
             log::error!("Failed to send menu event to channel");
         }
     }));
-    
+
     stream::channel(100, |mut output| async move {
         // Create channels for events from frontend
         let (frontend_sender, mut frontend_receiver) = mpsc::channel(100);
@@ -90,19 +93,10 @@ pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
     })
 }
 
-fn load_icon() -> tray_icon::Icon {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/resources/icon.png");
-    let path = std::path::Path::new(path);
-    let (icon_rgba, icon_width, icon_height) = {
-        let image = image::open(path)
-            .expect("Failed to open icon path")
-            .into_rgba8();
-        let (width, height) = image.dimensions();
-        let rgba = image.into_raw();
-        (rgba, width, height)
-    };
-    tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height)
-        .expect("Failed to open icon")
+fn load_icon() -> Result<tray_icon::Icon> {
+    let pixels = resources::load_as_rgba(resources::ICON_BYTES)?;
+    let icon = tray_icon::Icon::from_rgba(pixels.to_vec(), pixels.width(), pixels.height())?;
+    Ok(icon)
 }
 
 pub fn new_tray_icon() -> TrayIcon {
@@ -126,14 +120,20 @@ pub fn new_tray_icon() -> TrayIcon {
         &quit_item,
     ]).expect("Failed to append items");
 
-    // Load the icon
-    let icon = load_icon();
+    // Add menu and tooltip
+    let mut builder = TrayIconBuilder::new()
+        .with_menu(Box::new(menu))
+        .with_tooltip("iRacing HA Monitor");
+
+    // Add icon
+    if let Ok(icon) = load_icon() {
+        builder = builder.with_icon(icon);
+    } else {
+        log::warn!("Failed to load tray icon, continuing without icon");
+    }
 
     // Build the tray icon
-    TrayIconBuilder::new()
-        .with_menu(Box::new(menu))
-        .with_tooltip("iRacing HA Monitor")
-        .with_icon(icon)
+    builder
         .build()
         .unwrap()
 }

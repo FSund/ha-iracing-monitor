@@ -4,6 +4,7 @@ mod iracing_client;
 mod frontend;
 mod sim_monitor;
 mod tray;
+mod resources;
 
 // use iracing_client::SimClient;
 // use anyhow::{Context, Result};
@@ -109,5 +110,6 @@ pub fn main() -> iced::Result {
     // handy when trying to implement a tray icon
     iced::daemon(IracingMonitorGui::title, IracingMonitorGui::update, IracingMonitorGui::view)
         .subscription(IracingMonitorGui::subscription)
+        .theme(IracingMonitorGui::theme)
         .run_with(IracingMonitorGui::new)
 }
