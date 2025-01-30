@@ -84,6 +84,7 @@ impl IracingMonitorGui {
         iced::window::Settings {
             size: iced::Size {width: 400.0 * 1.618, height: 400.0 },
             min_size: Some(iced::Size {width: 300.0, height: 400.0 }),
+            icon: load_icon(),
             ..Default::default()
         }
     }
@@ -302,4 +303,24 @@ impl IracingMonitorGui {
             Subscription::run(tray::tray_subscription).map(Message::TrayEvent),
         ])
     }
+}
+
+fn load_icon() -> Option<iced::window::Icon> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/resources/icon.png");
+    let path = std::path::Path::new(path);
+    let (icon_rgba, icon_width, icon_height) = {
+        let image = image::open(path)
+            .expect("Failed to open icon path")
+            .into_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        (rgba, width, height)
+    };
+    match iced::window::icon::from_rgba(icon_rgba, icon_width, icon_height) {
+        Ok(icon) => Some(icon),
+        Err(e) => {
+            log::warn!("Failed to load icon: {e}");
+            None
+        }
+    }   
 }
