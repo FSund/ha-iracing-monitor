@@ -18,6 +18,8 @@ use env_logger::{Builder, Target};
 use log::LevelFilter;
 // use iced;
 use frontend::IracingMonitorGui;
+use std::fs;
+use chrono::Local;
 
 // #[tokio::main]
 // async fn main() -> Result<()> {
@@ -102,10 +104,24 @@ pub fn main() -> iced::Result {
     
     // Keep your application at DEBUG level
     builder.filter_module("iracing_ha_monitor", LevelFilter::Debug);
+
+    // Create logs directory if it doesn't exist
+    fs::create_dir_all("logs").expect("Failed to create logs directory");
+
+    // Generate timestamp for log file
+    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
+    let log_file = format!("logs/iracing_ha_monitor_{}.log", timestamp);
+
+    // Open log file
+    let file = fs::File::create(&log_file)
+        .expect("Failed to create log file");
     
     // Apply the configuration
-    builder.target(Target::Stdout)
-           .init();
+    // let target = Target::Pipe(Box::new(file));
+    let target = Target::Stdout;
+    builder
+        .target(target)
+        .init();
 
     // using a daemon is overkill for a plain iced application, but might come in
     // handy when trying to implement a tray icon

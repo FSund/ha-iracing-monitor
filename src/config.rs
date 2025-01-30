@@ -120,11 +120,6 @@ fn get_config_path() -> PathBuf {
         .parent()
         .expect("Failed to get executable directory")
         .to_path_buf();
-        
-    // // Create the directory if it doesn't exist
-    // std::fs::create_dir_all(&exe_dir).unwrap_or_else(|e| {
-    //     log::warn!("Failed to create config directory: {}", e);
-    // });
     
     exe_dir.join("config.toml")
 }
@@ -132,20 +127,34 @@ fn get_config_path() -> PathBuf {
 pub fn get_app_config() -> AppConfig {
     let settings = settings()
         .read()
-        .expect("Failed to read settings");
-
-    log::debug!("Settings: {:?}", settings.clone());
-
-    settings
+        .expect("Failed to read settings")
         .clone()
         .try_deserialize::<AppConfig>()
-        .expect("Failed to deserialize settings")
+        .unwrap_or_else(|_| {
+            log::warn!("Failed to deserialize settings! Using default config");
+            AppConfig::default()
+        });
+
+    log::debug!("Settings: {:?}", settings.clone());
+    settings
 }
 
 fn settings() -> &'static RwLock<Config> {
     static CONFIG: OnceLock<RwLock<Config>> = OnceLock::new();
     CONFIG.get_or_init(|| {
         log::debug!("Initializing settings");
+
+        // Ensure config file exists
+        let config_path = get_config_path();
+        if !config_path.exists() {
+            log::debug!("Creating config file {config_path:?} with default config");
+            std::fs::write(&config_path, "").expect("Failed to create config file");
+
+            // Write default config to file
+            let default_app_config = AppConfig::default();
+            default_app_config.save().expect("Failed to save default config");
+        }
+        
         let settings = load();
         RwLock::new(settings)
     })
@@ -156,37 +165,14 @@ fn refresh() {
 }
 
 fn load() -> Config {
-    let config_path = get_config_path();
-
-    // Create file if it doesn't exist
-    if !config_path.exists() {
-        log::debug!("Creating config file {config_path:?}");
-        std::fs::write(&config_path, "").expect("Failed to create config file");
-
-        // Write default config to file
-        let default_app_config = AppConfig::default();
-        default_app_config.save().expect("Failed to save default config");
-    }
-
-    // Ensure the config file exists, and all fields are present
-    // let _app_config = AppConfig::load_or_create(&config_path).expect("Failed to load or create config");
-
     Config::builder()
-        .add_source(File::from(config_path))
+        .add_source(File::from(get_config_path()))
         .build()
         .unwrap()
 }
 
 fn show() {
-    println!(
-        " * Settings :: \n\x1b[31m{:?}\x1b[0m",
-        settings()
-            .read()
-            .unwrap()
-            .clone()
-            .try_deserialize::<HashMap<String, String>>()
-            .unwrap()
-    );
+    log::debug!("Current settings: {:?}", settings().read().unwrap().clone());
 }
 
 #[derive(Debug, Clone)]

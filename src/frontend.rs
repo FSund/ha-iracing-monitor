@@ -44,10 +44,10 @@ impl std::fmt::Display for State {
 pub struct IracingMonitorGui {
     config: config::AppConfig,
 
-    mqtt_host: String,
-    mqtt_port: String,
-    mqtt_user: String,
-    mqtt_password: String,
+    // mqtt_host: String,
+    // mqtt_port: String,
+    // mqtt_user: String,
+    // mqtt_password: String,
     port_is_valid: bool,
 
     state: State,
@@ -70,10 +70,10 @@ impl IracingMonitorGui {
             Self {
                 config: config.clone(),
 
-                mqtt_host: config.mqtt.host,
-                mqtt_port: config.mqtt.port.to_string(),
-                mqtt_user: config.mqtt.user,
-                mqtt_password: config.mqtt.password,
+                // mqtt_host: config.mqtt.host,
+                // mqtt_port: config.mqtt.port.to_string(),
+                // mqtt_user: config.mqtt.user,
+                // mqtt_password: config.mqtt.password,
                 port_is_valid: true,
                 
                 state: State::WaitingForBackendConnection,
@@ -112,7 +112,7 @@ impl IracingMonitorGui {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::MqttHostChanged(value) => {
-                self.mqtt_host = value;
+                self.config.mqtt.host = value;
                 Task::none()
             }
             Message::MqttPortChanged(value) => {
@@ -122,23 +122,23 @@ impl IracingMonitorGui {
                 } else {
                     self.port_is_valid = false;
                 }
-                self.mqtt_port = value;
+                self.config.mqtt.port = value;
                 Task::none()
             }
             Message::MqttUserChanged(value) => {
-                self.mqtt_user = value;
+                self.config.mqtt.user = value;
                 Task::none()
             }
             Message::MqttPasswordChanged(value) => {
-                self.mqtt_password = value;
+                self.config.mqtt.password = value;
                 Task::none()
             }
             Message::ApplyMqttConfig => {
-                if let Ok(port) = self.mqtt_port.parse() {
-                    self.config.mqtt.host = self.mqtt_host.clone();
-                    self.config.mqtt.port = port;
-                    self.config.mqtt.user = self.mqtt_user.clone();
-                    self.config.mqtt.password = self.mqtt_password.clone();
+                if let Ok(_port) = self.config.mqtt.port.parse::<u16>() {
+                    // self.config.mqtt.host = self.config.mqtt.host.clone();
+                    // self.config.mqtt.port = port;
+                    // self.config.mqtt.user = self.mqtt_user.clone();
+                    // self.config.mqtt.password = self.mqtt_password.clone();
 
                     self.config.save().expect("Failed to save config to file");
 
@@ -152,7 +152,7 @@ impl IracingMonitorGui {
                         }
                     }
                 } else {
-                    log::warn!("Invalid MQTT config");
+                    log::warn!("Invalid MQTT port {} (must be a number)", self.config.mqtt.port);
                 }
 
                 Task::none()
@@ -266,13 +266,13 @@ impl IracingMonitorGui {
                 text("iRacing Home Assistant Monitor").size(28),
                 Space::new(Length::Shrink, Length::Fixed(16.)),
 
-                text_input("MQTT Host", &self.mqtt_host)
+                text_input("MQTT Host", &self.config.mqtt.host)
                     .on_input(Message::MqttHostChanged),
-                text_input("MQTT Port", &self.mqtt_port)
+                text_input("MQTT Port", &self.config.mqtt.port)
                     .on_input(Message::MqttPortChanged),
-                text_input("MQTT User", &self.mqtt_user)
+                text_input("MQTT User", &self.config.mqtt.user)
                     .on_input(Message::MqttUserChanged),
-                text_input("MQTT Password", &self.mqtt_password)
+                text_input("MQTT Password", &self.config.mqtt.password)
                     .on_input(Message::MqttPasswordChanged)
                     .secure(true),
                 Space::new(Length::Shrink, Length::Fixed(16.)),
