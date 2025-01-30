@@ -5,6 +5,7 @@ mod frontend;
 mod sim_monitor;
 mod tray;
 mod resources;
+mod config;
 
 // use iracing_client::SimClient;
 // use anyhow::{Context, Result};

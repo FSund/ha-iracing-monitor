@@ -1,6 +1,7 @@
 use crate::sim_monitor;
 use crate::tray;
 use crate::resources;
+use crate::config;
 
 use iced::Length::{self, Fill};
 use iced::{keyboard, Element};
@@ -22,6 +23,8 @@ pub enum Message {
 
     SimUpdated(sim_monitor::Event),
     TrayEvent(tray::TrayEventType),
+
+    ConfigChanged(config::Event),
 }
 
 enum State {
@@ -210,6 +213,10 @@ impl IracingMonitorGui {
                     // }
                 }
             }
+            Message::ConfigChanged(event) => {
+                log::info!("Config changed: {event:?}");
+                Task::none()
+            }
             Message::Quit => {
                 log::info!("Quit application!");
                 
@@ -307,6 +314,7 @@ impl IracingMonitorGui {
             keyboard::on_key_press(handle_hotkey),
             Subscription::run(sim_monitor::connect).map(Message::SimUpdated),
             Subscription::run(tray::tray_subscription).map(Message::TrayEvent),
+            Subscription::run(config::watch_config).map(Message::ConfigChanged),
         ])
     }
 }
