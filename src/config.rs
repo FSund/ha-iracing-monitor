@@ -32,6 +32,7 @@ use crate::sim_monitor::MqttConfig;
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AppConfig {
     pub mqtt: MqttConfig,
+    pub mqtt_enabled: bool,
 }
 
 // impl Default for AppConfig {

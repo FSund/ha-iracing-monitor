@@ -3,6 +3,8 @@ use crate::tray;
 use crate::resources;
 use crate::config;
 
+use iced::widget::checkbox;
+use iced::widget::container;
 use iced::Length::{self, Fill};
 use iced::{keyboard, Element};
 use iced::widget::{button, column, row, text, text_input, Column, Container, Space};
@@ -25,6 +27,10 @@ pub enum Message {
     TrayEvent(tray::TrayEventType),
 
     ConfigChanged(config::Event),
+
+    SettingsPressed,
+    HomePressed,
+    MqttToggled(bool),
 }
 
 enum State {
@@ -39,6 +45,12 @@ impl std::fmt::Display for State {
             State::WaitingForBackendConnection => write!(f, "Waiting for backend connection"),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Screen {
+    Home,
+    Settings,
 }
 
 pub struct IracingMonitorGui {
@@ -58,6 +70,8 @@ pub struct IracingMonitorGui {
     tray: Option<tray::Connection>,
 
     window_id: Option<window::Id>,
+
+    screen: Screen,
 }
 
 impl IracingMonitorGui {
@@ -84,6 +98,7 @@ impl IracingMonitorGui {
                 tray: None,
 
                 window_id: Some(id),
+                screen: Screen::Home,
             },
             open.map(Message::WindowOpened),
         )
@@ -113,7 +128,6 @@ impl IracingMonitorGui {
         match message {
             Message::MqttHostChanged(value) => {
                 self.config.mqtt.host = value;
-                Task::none()
             }
             Message::MqttPortChanged(value) => {
                 log::debug!("Port is {value}");
@@ -123,15 +137,12 @@ impl IracingMonitorGui {
                     self.port_is_valid = false;
                 }
                 self.config.mqtt.port = value;
-                Task::none()
             }
             Message::MqttUserChanged(value) => {
                 self.config.mqtt.user = value;
-                Task::none()
             }
             Message::MqttPasswordChanged(value) => {
                 self.config.mqtt.password = value;
-                Task::none()
             }
             Message::ApplyMqttConfig => {
                 if let Ok(_port) = self.config.mqtt.port.parse::<u16>() {
@@ -154,19 +165,15 @@ impl IracingMonitorGui {
                 } else {
                     log::warn!("Invalid MQTT port {} (must be a number)", self.config.mqtt.port);
                 }
-
-                Task::none()
             }
             Message::WindowOpened(id) => {
                 if id != self.window_id.unwrap() {
                     log::warn!("Window ID mismatch");
                 }
-                Task::none()
             }
             Message::WindowClosed(_id) => {
                 log::info!("Window closed");
                 self.window_id = None;
-                Task::none()
             }
             Message::SimUpdated(event) => {
                 log::debug!("SimUpdated message received! ({event})");
@@ -192,7 +199,6 @@ impl IracingMonitorGui {
                         self.sim_state = Some(state);
                     }
                 }
-                Task::none()
             }
             Message::TrayEvent(event) => {
                 log::info!("Tray event: {event:?}");
@@ -205,14 +211,20 @@ impl IracingMonitorGui {
                         // }
                         match id.0.as_str() {
                             // TODO: matching on strings is bad and you should feel bad
-                            "quit" => Task::done(Message::Quit),
-                            "options"  => self.open_window(),
-                            _ => Task::none(),
+                            "quit" => {
+                                return Task::done(Message::Quit)
+                            },
+                            "options"  => {
+                                return self.open_window()
+                            },
+                            _ => {
+                                log::warn!("Unknown tray menu item clicked: {}", id.0);
+                                return Task::none()
+                            },
                         }
                     }
                     tray::TrayEventType::Connected(connection) => {
                         self.tray = Some(connection);
-                        Task::none()
                     }
                     // tray::TrayEventType::IconClicked => {
                     //     self.open_window()
@@ -221,7 +233,15 @@ impl IracingMonitorGui {
             }
             Message::ConfigChanged(event) => {
                 log::info!("Config changed: {event:?}");
-                Task::none()
+            }
+            Message::SettingsPressed => {
+                self.screen = Screen::Settings;
+            }
+            Message::HomePressed => {
+                self.screen = Screen::Home;
+            }
+            Message::MqttToggled(state) => {
+                self.config.mqtt_enabled = state;
             }
             Message::Quit => {
                 log::info!("Quit application!");
@@ -231,9 +251,10 @@ impl IracingMonitorGui {
                     tray.send(tray::Message::Quit);
                 }
 
-                iced::exit()
+                return iced::exit();
             }
         }
+        Task::none()
     }
 
     fn open_window(&mut self) -> Task<Message> {
@@ -249,58 +270,89 @@ impl IracingMonitorGui {
         }
     }
 
-    pub fn view(&self, _window_id: iced::window::Id) -> Element<Message> {
+    fn home(&self) -> Column<Message> {
+        column![
+            text("iRacing Home Assistant Monitor").size(28),
+            Space::new(Length::Shrink, Length::Fixed(16.)),
+            row![
+                // text(),
+                checkbox("Publish to MQTT", self.config.mqtt_enabled)
+                    .on_toggle(Message::MqttToggled),
+            ],
+            Space::new(Length::Shrink, Length::Fixed(16.)),
+            button("Settings").on_press(Message::SettingsPressed),
+        ]
+    }
+
+    fn settings(&self) -> Column<Message> {
         let apply_mqtt_config_button =
             if self.port_is_valid && matches!(self.state, State::ConnectedToBackend(_)) {
                 button("Apply MQTT config").on_press(Message::ApplyMqttConfig)
             } else {
                 button("Apply MQTT config")
             };
+
+        column![
+            button("Back").on_press(Message::HomePressed),
+            Space::new(Length::Shrink, Length::Fixed(16.)),
+
+            text("MQTT settings").size(24),
+            Space::new(Length::Shrink, Length::Fixed(16.)),
+
+            row![
+                text("Host:"),
+                text_input("Host", &self.config.mqtt.host)
+                    .on_input(Message::MqttHostChanged),
+            ].align_y(iced::alignment::Vertical::Center),
+
+            text_input("MQTT Port", &self.config.mqtt.port)
+                .on_input(Message::MqttPortChanged),
+            text_input("MQTT User", &self.config.mqtt.user)
+                .on_input(Message::MqttUserChanged),
+            text_input("MQTT Password", &self.config.mqtt.password)
+                .on_input(Message::MqttPasswordChanged)
+                .secure(true),
+            Space::new(Length::Shrink, Length::Fixed(16.)),
+
+            apply_mqtt_config_button,
+        ]
+    }
+
+    pub fn view(&self, _window_id: iced::window::Id) -> Element<Message> {
+        // main screen
+        let screen = match self.screen {
+            Screen::Home => self.home(),
+            Screen::Settings => self.settings(),
+        };
+
+        // bottom status messages
         let last_message = if let Some(sim_state) = &self.sim_state {
             sim_state.timestamp.clone()
         } else {
             "None".to_string()
         };
-        Container::new(
+
+        let status = column![
+            text(self.state.to_string()).size(16),
+            text(format!("Session type: {}", if let Some(sim_state) = &self.sim_state { sim_state.current_session_type.clone() } else { "None".to_string() })),
+            text(format!("Last message: {last_message}")),
+        ];
+
+        container(
             column![
-                text("iRacing Home Assistant Monitor").size(28),
-                Space::new(Length::Shrink, Length::Fixed(16.)),
+                // main screen
+                screen,
 
-                text_input("MQTT Host", &self.config.mqtt.host)
-                    .on_input(Message::MqttHostChanged),
-                text_input("MQTT Port", &self.config.mqtt.port)
-                    .on_input(Message::MqttPortChanged),
-                text_input("MQTT User", &self.config.mqtt.user)
-                    .on_input(Message::MqttUserChanged),
-                text_input("MQTT Password", &self.config.mqtt.password)
-                    .on_input(Message::MqttPasswordChanged)
-                    .secure(true),
-                Space::new(Length::Shrink, Length::Fixed(16.)),
-
-                apply_mqtt_config_button,
-                Space::new(Length::Shrink, Length::Fill),
-                
+                // status messages
+                Space::new(Length::Shrink, Length::Fill), // push status to bottom
                 row![
-                    column![
-                        text(self.state.to_string()).size(16),
-                        text(format!("Session type: {}", if let Some(sim_state) = &self.sim_state { sim_state.current_session_type.clone() } else { "None".to_string() })),
-                        text(format!("Last message: {last_message}")),
-                    ],
+                    status,
                     Space::new(Length::Fill, Length::Shrink),
                     button("Quit").on_press(Message::Quit),
-                ].align_y(iced::alignment::Vertical::Bottom)
-                
-                // Space::new(Length::Shrink, Length::Fixed(16.)),
-                // row![
-                    
-                //     Space::new(Length::Fill, Length::Shrink),
-                //     button("Quit").on_press(Message::Quit),
-                // ],
-                // Space::new(Length::Shrink, Length::Fixed(16.)),
+                ].align_y(iced::alignment::Vertical::Bottom) // align to bottom
             ]
         )
-        .padding(10)
-        .center_x(Fill)
+        .padding(10) // pad the whole container (distance to window edges)
         .into()
     }
 
