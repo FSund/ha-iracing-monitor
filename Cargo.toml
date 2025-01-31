@@ -48,3 +48,11 @@ name = "simetry_sample"
 [dev-dependencies]
 iracing = "0.4.1"
 iracing-telem = "0.2.1"
+
+[profile.release]
+#opt-level = 'z'     # Optimize for size
+lto = true          # Enable link-time optimization
+codegen-units = 1   # Reduce number of codegen units to increase optimizations
+panic = 'abort'     # Abort on panic
+strip = true        # Strip symbols from binary*
+# * strip = true requires Rust 1.59+. On older Rust versions, run strip manually on the resulting binary.
