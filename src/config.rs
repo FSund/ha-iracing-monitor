@@ -12,6 +12,7 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use iced::futures::{SinkExt, Stream};
 use serde::Deserialize;
 use serde::Serialize;
+use anyhow::{Context, Result};
 
 use crate::sim_monitor::MqttConfig;
 
@@ -109,8 +110,8 @@ impl AppConfig {
 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         let path = get_config_path();
-        let toml_string = toml::to_string_pretty(self)?;
-        fs::write(path, toml_string)?;
+        let toml_string = toml::to_string_pretty(self).context("Failed to serialize config")?;
+        fs::write(path, toml_string).context("Failed to toml string to config file")?;
         Ok(())
     }
 }
@@ -178,7 +179,7 @@ fn show() {
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    ConfigurationUpdated(AppConfig),
+    ConfigUpdated(AppConfig),
     WatchError(String),
 }
 
@@ -226,7 +227,7 @@ pub fn watch_config() -> impl Stream<Item = Event> {
                             refresh();
                             show();
                             output
-                                .send(Event::ConfigurationUpdated(get_app_config()))
+                                .send(Event::ConfigUpdated(get_app_config()))
                                 .await
                                 .expect("Failed to send event");
                         }

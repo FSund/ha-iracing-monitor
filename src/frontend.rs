@@ -10,6 +10,7 @@ use iced::{keyboard, Element};
 use iced::widget::{button, column, row, text, text_input, Column, Container, Space};
 use iced::window;
 use iced::{Subscription, Task};
+use iced_aw::widgets::number_input;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -18,7 +19,7 @@ pub enum Message {
     Quit,
 
     MqttHostChanged(String),
-    MqttPortChanged(String),
+    MqttPortChanged(u16),
     MqttUserChanged(String),
     MqttPasswordChanged(String),
     ApplyMqttConfig,
@@ -26,7 +27,7 @@ pub enum Message {
     SimUpdated(sim_monitor::Event),
     TrayEvent(tray::TrayEventType),
 
-    ConfigChanged(config::Event),
+    ConfigFileEvent(config::Event),
 
     SettingsPressed,
     HomePressed,
@@ -60,7 +61,7 @@ pub struct IracingMonitorGui {
     // mqtt_port: String,
     // mqtt_user: String,
     // mqtt_password: String,
-    port_is_valid: bool,
+    // port_is_valid: bool,
 
     state: State,
     connected_to_sim: bool,
@@ -88,7 +89,7 @@ impl IracingMonitorGui {
                 // mqtt_port: config.mqtt.port.to_string(),
                 // mqtt_user: config.mqtt.user,
                 // mqtt_password: config.mqtt.password,
-                port_is_valid: true,
+                // port_is_valid: true,
                 
                 state: State::WaitingForBackendConnection,
                 connected_to_sim: false,
@@ -130,12 +131,6 @@ impl IracingMonitorGui {
                 self.config.mqtt.host = value;
             }
             Message::MqttPortChanged(value) => {
-                log::debug!("Port is {value}");
-                if let Ok(_val) = value.parse::<u16>() {
-                    self.port_is_valid = true;
-                } else {
-                    self.port_is_valid = false;
-                }
                 self.config.mqtt.port = value;
             }
             Message::MqttUserChanged(value) => {
@@ -145,25 +140,18 @@ impl IracingMonitorGui {
                 self.config.mqtt.password = value;
             }
             Message::ApplyMqttConfig => {
-                if let Ok(_port) = self.config.mqtt.port.parse::<u16>() {
-                    // self.config.mqtt.host = self.config.mqtt.host.clone();
-                    // self.config.mqtt.port = port;
-                    // self.config.mqtt.user = self.mqtt_user.clone();
-                    // self.config.mqtt.password = self.mqtt_password.clone();
+                if let Err(err) = self.config.save() {
+                    log::warn!("Failed to save config to file: {err}");
+                }
 
-                    self.config.save().expect("Failed to save config to file");
-
-                    let msg = sim_monitor::Message::UpdateConfig(self.config.mqtt.clone());
-                    match &mut self.state {
-                        State::ConnectedToBackend(connection) => {
-                            connection.send(msg);
-                        }
-                        State::WaitingForBackendConnection => {
-                            log::warn!("Invalid state, waiting for backend")
-                        }
+                let msg = sim_monitor::Message::UpdateConfig(self.config.mqtt.clone());
+                match &mut self.state {
+                    State::ConnectedToBackend(connection) => {
+                        connection.send(msg);
                     }
-                } else {
-                    log::warn!("Invalid MQTT port {} (must be a number)", self.config.mqtt.port);
+                    State::WaitingForBackendConnection => {
+                        log::warn!("Invalid state, waiting for backend")
+                    }
                 }
             }
             Message::WindowOpened(id) => {
@@ -231,8 +219,18 @@ impl IracingMonitorGui {
                     // }
                 }
             }
-            Message::ConfigChanged(event) => {
-                log::info!("Config changed: {event:?}");
+            Message::ConfigFileEvent(event) => {
+                match event {
+                    config::Event::ConfigUpdated(config) => {
+                        log::info!("Config file changed: {config:?}");
+                    }
+                    config::Event::WatchError(err) => {
+                        log::warn!("Config file error: {err}");
+                    }
+                    _ => {
+                        log::info!("Unhandled config file event: {event:?}");
+                    }
+                }
             }
             Message::SettingsPressed => {
                 self.screen = Screen::Settings;
@@ -244,7 +242,13 @@ impl IracingMonitorGui {
                 self.config.mqtt_enabled = state;
             }
             Message::Quit => {
-                log::info!("Quit application!");
+                log::info!("Quitting application!");
+
+                // save config
+                log::info!("Saving config to file");
+                if let Err(err) = self.config.save() {
+                    log::warn!("Failed to save config to file: {err}");
+                }
                 
                 // kill tray
                 if let Some(tray) = &mut self.tray {
@@ -285,13 +289,8 @@ impl IracingMonitorGui {
     }
 
     fn settings(&self) -> Column<Message> {
-        let apply_mqtt_config_button =
-            if self.port_is_valid && matches!(self.state, State::ConnectedToBackend(_)) {
-                button("Apply MQTT config").on_press(Message::ApplyMqttConfig)
-            } else {
-                button("Apply MQTT config")
-            };
-
+        let text_width = 100;
+        let row_spacing = 4.0;
         column![
             button("Back").on_press(Message::HomePressed),
             Space::new(Length::Shrink, Length::Fixed(16.)),
@@ -300,21 +299,34 @@ impl IracingMonitorGui {
             Space::new(Length::Shrink, Length::Fixed(16.)),
 
             row![
-                text("Host:"),
+                text("Host").width(text_width),
                 text_input("Host", &self.config.mqtt.host)
                     .on_input(Message::MqttHostChanged),
             ].align_y(iced::alignment::Vertical::Center),
+            Space::new(Length::Shrink, Length::Fixed(row_spacing)),
+            row![
+                text("Port").width(text_width),
+                number_input(self.config.mqtt.port, 0..65535, Message::MqttPortChanged)
+                    .ignore_buttons(true)
+                    .width(Fill),
+            ].align_y(iced::alignment::Vertical::Center),
+            Space::new(Length::Shrink, Length::Fixed(row_spacing)),
+            row![
+                text("User").width(text_width),
+                text_input("User", &self.config.mqtt.user)
+                    .on_input(Message::MqttUserChanged),
+            ].align_y(iced::alignment::Vertical::Center),
+            Space::new(Length::Shrink, Length::Fixed(row_spacing)),
+            row![
+                text("Password").width(text_width),
+                text_input("Password", &self.config.mqtt.password)
+                    .on_input(Message::MqttPasswordChanged)
+                    .secure(true),
+            ].align_y(iced::alignment::Vertical::Center),
 
-            text_input("MQTT Port", &self.config.mqtt.port)
-                .on_input(Message::MqttPortChanged),
-            text_input("MQTT User", &self.config.mqtt.user)
-                .on_input(Message::MqttUserChanged),
-            text_input("MQTT Password", &self.config.mqtt.password)
-                .on_input(Message::MqttPasswordChanged)
-                .secure(true),
             Space::new(Length::Shrink, Length::Fixed(16.)),
 
-            apply_mqtt_config_button,
+            button("Apply MQTT config").on_press(Message::ApplyMqttConfig),
         ]
     }
 
@@ -372,7 +384,7 @@ impl IracingMonitorGui {
             keyboard::on_key_press(handle_hotkey),
             Subscription::run(sim_monitor::connect).map(Message::SimUpdated),
             Subscription::run(tray::tray_subscription).map(Message::TrayEvent),
-            Subscription::run(config::watch_config).map(Message::ConfigChanged),
+            Subscription::run(config::watch_config).map(Message::ConfigFileEvent),
         ])
     }
 }

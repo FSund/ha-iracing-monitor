@@ -35,7 +35,7 @@ impl Default for SimMonitorState {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MqttConfig {
     pub host: String,
-    pub port: String, // TODO: implement int_input instead of text_input to avoid this
+    pub port: u16,
     pub user: String,
     pub password: String,
 }
@@ -44,7 +44,7 @@ impl Default for MqttConfig {
     fn default() -> Self {
         Self {
             host: "localhost".to_string(),
-            port: "1883".to_string(),
+            port: 1883,
             user: "".to_string(),
             password: "".to_string(),
         }
@@ -82,9 +82,7 @@ impl SimMonitor {
             handle.abort();
         }
 
-        let port = mqtt_config.port.parse()
-            .expect(format!("Failed to parse MQTT port {:?} (should be a number)", mqtt_config.port).as_str());
-        let mut mqtt_options = MqttOptions::new("iracing-monitor", mqtt_config.host, port);
+        let mut mqtt_options = MqttOptions::new("iracing-monitor", mqtt_config.host, mqtt_config.port);
         mqtt_options.set_keep_alive(Duration::from_secs(5));
         mqtt_options.set_credentials(mqtt_config.user, mqtt_config.password);
         let (mqtt_client, mut mqtt_eventloop) = AsyncClient::new(mqtt_options, 10);

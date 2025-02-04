@@ -9,7 +9,8 @@ async-trait = "0.1.85"
 chrono = "0.4.39"
 config = { version = "0.15.6", features = ["toml"] }
 env_logger = "0.11.6"
-iced = {version = "0.13.1", features = ["tokio", "image"] }
+iced = { version = "0.13.1", features = ["tokio", "image"] }
+iced_aw = { version = "0.11.0", features = ["number_input"] }
 image = "0.25.5"
 #iracing = "0.4.1"
 #iracing-telem = "0.2.1"
@@ -56,3 +57,6 @@ codegen-units = 1   # Reduce number of codegen units to increase optimizations
 panic = 'abort'     # Abort on panic
 strip = true        # Strip symbols from binary*
 # * strip = true requires Rust 1.59+. On older Rust versions, run strip manually on the resulting binary.
+
+[lints.clippy]
+future_not_send = "deny"
