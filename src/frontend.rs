@@ -362,6 +362,19 @@ impl IracingMonitorGui {
         // };
 
         // this seems like a lot of boilerplate to style a container, but it works
+        pub fn left_container_style(_theme: &iced::widget::Theme) -> iced::widget::container::Style {
+            // container::background(iced::Color::from_rgb(0.1, 0.1, 0.1))
+            
+            // from here: https://docs.rs/iced_widget/0.13.1/src/iced_widget/container.rs.html#682
+            // let palette = theme.extended_palette();
+            iced::widget::container::Style {
+                // background: Some(palette.background.weak.color.into()),
+                // background: Some(iced::Background::Color(iced::Color::from_rgba(1., 1., 1., 0.01))),
+                background: Some(iced::Background::Color(iced::Color::TRANSPARENT)),
+                border: iced::border::rounded(2),
+                ..iced::widget::container::Style::default()
+            }
+        }
         pub fn container_style(_theme: &iced::widget::Theme) -> iced::widget::container::Style {
             // container::background(iced::Color::from_rgb(0.1, 0.1, 0.1))
             
@@ -370,6 +383,20 @@ impl IracingMonitorGui {
             iced::widget::container::Style {
                 // background: Some(palette.background.weak.color.into()),
                 background: Some(iced::Background::Color(iced::Color::from_rgba(1., 1., 1., 0.01))),
+                // background: Some(iced::Background::Color(iced::Color::TRANSPARENT)),
+                border: iced::border::rounded(2),
+                ..iced::widget::container::Style::default()
+            }
+        }
+        pub fn status_container_style(_theme: &iced::widget::Theme) -> iced::widget::container::Style {
+            // container::background(iced::Color::from_rgb(0.1, 0.1, 0.1))
+            
+            // from here: https://docs.rs/iced_widget/0.13.1/src/iced_widget/container.rs.html#682
+            // let palette = theme.extended_palette();
+            iced::widget::container::Style {
+                // background: Some(palette.background.weak.color.into()),
+                background: Some(iced::Background::Color(iced::Color::from_rgba(0.5, 1., 0.5, 0.01))),
+                // background: Some(iced::Background::Color(iced::Color::TRANSPARENT)),
                 border: iced::border::rounded(2),
                 ..iced::widget::container::Style::default()
             }
@@ -451,10 +478,10 @@ impl IracingMonitorGui {
             // .padding(10)
             // .center(800)
             // .center(Fill)
-            .align_left(Length::Fixed(192.))
+            .align_left(Length::Fixed(150.))
             .align_top(Length::Fill)
             // .style(container::rounded_box)
-            .style(container_style)
+            .style(left_container_style)
         ].padding(Padding::new(0.).right(10));
 
         // container(
@@ -464,18 +491,31 @@ impl IracingMonitorGui {
                 left_menu,
                 column![   
                     // main screen
-                    screen,
+                    container(
+                        screen,
+                    )
+                    .align_left(Length::Fill)
+                    .align_top(Length::Fill)
+                    .style(container_style)
+                    .padding(6),
 
                     // status messages
-                    Space::new(Length::Shrink, Length::Fill), // push status to bottom
-                    row![
-                        status,
-                        Space::new(Length::Fill, Length::Shrink),
-                        button("Quit")
-                            // .width(Length::Fixed(64.))
-                            .clip(false)
-                            .on_press(Message::Quit),
-                    ].align_y(iced::alignment::Vertical::Bottom) // align to bottom
+                    // Space::new(Length::Shrink, Length::Fill), // push status to bottom
+                    Space::new(Length::Shrink, Length::Fixed(6.)),
+                    container(
+                        row![
+                            status,
+                            Space::new(Length::Fill, Length::Shrink),
+                            button("Quit")
+                                // .width(Length::Fixed(64.))
+                                .clip(false)
+                                .on_press(Message::Quit),
+                        ].align_y(iced::alignment::Vertical::Bottom) // align to bottom
+                    )
+                    .align_left(Length::Fill)
+                    .align_bottom(Length::Shrink)
+                    .style(status_container_style)
+                    .padding(6),
                 ]
             ]
         ]
