@@ -6,7 +6,7 @@ use crate::config;
 use iced::widget::checkbox;
 use iced::widget::container;
 use iced::Length::{self, Fill};
-use iced::{keyboard, Element};
+use iced::{keyboard, Element, Padding};
 use iced::widget::{button, column, row, text, text_input, Column, Container, Space};
 use iced::window;
 use iced::{Subscription, Task};
@@ -108,7 +108,7 @@ impl IracingMonitorGui {
     fn window_settings() -> iced::window::Settings {
         iced::window::Settings {
             size: iced::Size {width: 400.0 * 1.618, height: 400.0 },
-            min_size: Some(iced::Size {width: 300.0, height: 400.0 }),
+            min_size: Some(iced::Size {width: 400.0 * 1.618, height: 400.0 }),
             icon: load_icon(),
             ..Default::default()
         }
@@ -276,15 +276,15 @@ impl IracingMonitorGui {
 
     fn home(&self) -> Column<Message> {
         column![
-            text("iRacing Home Assistant Monitor").size(28),
-            Space::new(Length::Shrink, Length::Fixed(16.)),
+            // text("iRacing Home Assistant Monitor").size(28),
+            // Space::new(Length::Shrink, Length::Fixed(16.)),
             row![
                 // text(),
                 checkbox("Publish to MQTT", self.config.mqtt_enabled)
                     .on_toggle(Message::MqttToggled),
             ],
-            Space::new(Length::Shrink, Length::Fixed(16.)),
-            button("Settings").on_press(Message::SettingsPressed),
+            // Space::new(Length::Shrink, Length::Fixed(16.)),
+            // button("Settings").on_press(Message::SettingsPressed),
         ]
     }
 
@@ -292,10 +292,10 @@ impl IracingMonitorGui {
         let text_width = 100;
         let row_spacing = 4.0;
         column![
-            button("Back").on_press(Message::HomePressed),
-            Space::new(Length::Shrink, Length::Fixed(16.)),
+            // button("Back").on_press(Message::HomePressed),
+            // Space::new(Length::Shrink, Length::Fixed(16.)),
 
-            text("MQTT settings").size(24),
+            text("MQTT settings"),
             Space::new(Length::Shrink, Length::Fixed(16.)),
 
             row![
@@ -350,20 +350,135 @@ impl IracingMonitorGui {
             text(format!("Last message: {last_message}")),
         ];
 
-        container(
-            column![
-                // main screen
-                screen,
+        // let home_text = if self.screen == Screen::Home {
+        //     text("Home").color(iced::Color::from_rgb(1.0, 0.0, 0.0))
+        // } else {
+        //     text("Home")
+        // };
+        // let settings_text = if self.screen == Screen::Settings {
+        //     text("Settings").color(iced::Color::from_rgb(1.0, 0.0, 0.0))
+        // } else {
+        //     text("Settings")
+        // };
 
-                // status messages
-                Space::new(Length::Shrink, Length::Fill), // push status to bottom
-                row![
-                    status,
-                    Space::new(Length::Fill, Length::Shrink),
-                    button("Quit").on_press(Message::Quit),
-                ].align_y(iced::alignment::Vertical::Bottom) // align to bottom
+        // this seems like a lot of boilerplate to style a container, but it works
+        pub fn container_style(_theme: &iced::widget::Theme) -> iced::widget::container::Style {
+            // container::background(iced::Color::from_rgb(0.1, 0.1, 0.1))
+            
+            // from here: https://docs.rs/iced_widget/0.13.1/src/iced_widget/container.rs.html#682
+            // let palette = theme.extended_palette();
+            iced::widget::container::Style {
+                // background: Some(palette.background.weak.color.into()),
+                background: Some(iced::Background::Color(iced::Color::from_rgba(1., 1., 1., 0.01))),
+                border: iced::border::rounded(2),
+                ..iced::widget::container::Style::default()
+            }
+        }
+
+        // pub fn button_style(theme: &iced::widget::Theme, status: iced::widget::button::Status) -> iced::widget::button::Style {
+        pub fn button_style(theme: &iced::widget::Theme, status: iced::widget::button::Status, screen: &Screen, my_screen: &Screen) -> iced::widget::button::Style {
+            use iced::widget::button::{Status, Style};
+            use iced::Background;
+            use iced::border;
+            use iced::theme::palette;
+
+            // from https://docs.iced.rs/src/iced_widget/button.rs.html#591
+            fn styled(pair: palette::Pair) -> Style {
+                Style {
+                    background: Some(Background::Color(pair.color)),
+                    text_color: pair.text,
+                    border: border::rounded(2),
+                    ..Style::default()
+                }
+            }
+
+            fn disabled(style: Style) -> Style {
+                Style {
+                    background: style
+                        .background
+                        .map(|background| background.scale_alpha(0.5)),
+                    text_color: style.text_color.scale_alpha(0.5),
+                    ..style
+                }
+            }
+
+            let palette = theme.extended_palette();
+            // let base = styled(palette.primary.strong);
+            let base = if screen == my_screen {
+                styled(palette.primary.strong)
+            } else {
+                // styled(palette.primary.strong)
+                let pair = palette::Pair {
+                    text: iced::Color::WHITE,
+                    color: iced::Color::from_rgb(0.1, 0.1, 0.1),
+                };
+                styled(pair)
+            };
+
+            match status {
+                Status::Active | Status::Pressed => base,
+                Status::Hovered => Style {
+                    background: Some(Background::Color(palette.primary.base.color)),
+                    ..base
+                },
+                Status::Disabled => disabled(base),
+            }
+        }
+
+        // let style = container::background(iced::Color::from_rgb(0.1, 0.1, 0.1));
+        let left_menu = column![
+            container(
+                column![
+                    button(
+                        // home_text
+                        "Home"
+                    )
+                        .width(Length::Fill)
+                        // .style(button_style)
+                        .style(|theme, status| button_style(theme, status, &self.screen, &Screen::Home))
+                        .on_press(Message::HomePressed),
+                    button(
+                        // settings_text
+                        "Settings"
+                    )
+                        .width(Length::Fill)
+                        .style(|theme, status| button_style(theme, status, &self.screen, &Screen::Settings))
+                        .on_press(Message::SettingsPressed),
+                ]
+                // .width(Length::Fixed(96.)),
+            )
+            // .width(Length::Fixed(96.))
+            // .padding(10)
+            // .center(800)
+            // .center(Fill)
+            .align_left(Length::Fixed(192.))
+            .align_top(Length::Fill)
+            // .style(container::rounded_box)
+            .style(container_style)
+        ].padding(Padding::new(0.).right(10));
+
+        // container(
+        column![
+            text("iRacing Home Assistant Monitor").size(28),
+            row![
+                left_menu,
+                column![   
+                    // main screen
+                    screen,
+
+                    // status messages
+                    Space::new(Length::Shrink, Length::Fill), // push status to bottom
+                    row![
+                        status,
+                        Space::new(Length::Fill, Length::Shrink),
+                        button("Quit")
+                            // .width(Length::Fixed(64.))
+                            .clip(false)
+                            .on_press(Message::Quit),
+                    ].align_y(iced::alignment::Vertical::Bottom) // align to bottom
+                ]
             ]
-        )
+        ]
         .padding(10) // pad the whole container (distance to window edges)
         .into()
     }

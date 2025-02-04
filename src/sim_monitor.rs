@@ -260,6 +260,10 @@ pub fn connect() -> impl Stream<Item = Event> {
         // Create channel
         let (sender, mut receiver) = mpsc::channel(100);
 
+         // MQTT state update interval
+         const UPDATE_INTERVAL: Duration = Duration::from_secs(1);
+         let mut interval = tokio::time::interval(UPDATE_INTERVAL);
+
         // Send the sender back to the application
         output
             .send(Event::Ready(Connection(sender)))
@@ -277,16 +281,22 @@ pub fn connect() -> impl Stream<Item = Event> {
                         }
                     }
                 }
-                // Handle the periodic state update
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                // Periodic state update
+                _ = interval.tick() => {
                     let state = monitor.get_current_state().await;
                     if let Err(e) = monitor.publish_state(&state).await {
                         log::warn!("Failed to publish state: {}", e);
                     }
-                    if state.connected {
-                        output.send(Event::ConnectedToSim(state)).await.expect("Unable to send");
+
+                    // Publish state event
+                    let event = if state.connected {
+                        Event::ConnectedToSim(state)
                     } else {
-                        output.send(Event::DisconnectedFromSim(state)).await.expect("Unable to send");
+                        Event::DisconnectedFromSim(state)
+                    };
+                    if let Err(e) = output.send(event).await {
+                        log::error!("Failed to send state event: {}", e);
+                        // break; // Consider breaking the loop if we can't send events
                     }
                 }
             }
