@@ -1,14 +1,14 @@
+use crate::config;
+use crate::resources;
 use crate::sim_monitor;
 use crate::tray;
-use crate::resources;
-use crate::config;
 
 use iced::widget::checkbox;
 use iced::widget::container;
-use iced::Length::{self, Fill};
-use iced::{keyboard, Element, Padding};
 use iced::widget::{button, column, row, text, text_input, Column, Container, Space};
 use iced::window;
+use iced::Length::{self, Fill};
+use iced::{keyboard, Element, Padding};
 use iced::{Subscription, Task};
 use iced_aw::widgets::number_input;
 
@@ -62,7 +62,6 @@ pub struct IracingMonitorGui {
     // mqtt_user: String,
     // mqtt_password: String,
     // port_is_valid: bool,
-
     state: State,
     connected_to_sim: bool,
     sim_state: Option<sim_monitor::SimMonitorState>,
@@ -90,7 +89,6 @@ impl IracingMonitorGui {
                 // mqtt_user: config.mqtt.user,
                 // mqtt_password: config.mqtt.password,
                 // port_is_valid: true,
-                
                 state: State::WaitingForBackendConnection,
                 connected_to_sim: false,
                 sim_state: None,
@@ -101,14 +99,22 @@ impl IracingMonitorGui {
                 window_id: Some(id),
                 screen: Screen::Home,
             },
-            open.map(Message::WindowOpened),
+            Task::batch([
+                open.map(Message::WindowOpened),
+            ])
         )
     }
 
     fn window_settings() -> iced::window::Settings {
         iced::window::Settings {
-            size: iced::Size {width: 400.0 * 1.618, height: 400.0 },
-            min_size: Some(iced::Size {width: 400.0 * 1.618, height: 400.0 }),
+            size: iced::Size {
+                width: 400.0 * 1.618,
+                height: 400.0,
+            },
+            min_size: Some(iced::Size {
+                width: 400.0 * 1.618,
+                height: 400.0,
+            }),
             icon: load_icon(),
             ..Default::default()
         }
@@ -199,39 +205,32 @@ impl IracingMonitorGui {
                         // }
                         match id.0.as_str() {
                             // TODO: matching on strings is bad and you should feel bad
-                            "quit" => {
-                                return Task::done(Message::Quit)
-                            },
-                            "options"  => {
-                                return self.open_window()
-                            },
+                            "quit" => return Task::done(Message::Quit),
+                            "options" => return self.open_window(),
                             _ => {
                                 log::warn!("Unknown tray menu item clicked: {}", id.0);
-                                return Task::none()
-                            },
+                                return Task::none();
+                            }
                         }
                     }
                     tray::TrayEventType::Connected(connection) => {
                         self.tray = Some(connection);
-                    }
-                    // tray::TrayEventType::IconClicked => {
-                    //     self.open_window()
-                    // }
+                    } // tray::TrayEventType::IconClicked => {
+                      //     self.open_window()
+                      // }
                 }
             }
-            Message::ConfigFileEvent(event) => {
-                match event {
-                    config::Event::ConfigUpdated(config) => {
-                        log::info!("Config file changed: {config:?}");
-                    }
-                    config::Event::WatchError(err) => {
-                        log::warn!("Config file error: {err}");
-                    }
-                    _ => {
-                        log::info!("Unhandled config file event: {event:?}");
-                    }
+            Message::ConfigFileEvent(event) => match event {
+                config::Event::ConfigUpdated(config) => {
+                    log::info!("Config file changed: {config:?}");
                 }
-            }
+                config::Event::WatchError(err) => {
+                    log::warn!("Config file error: {err}");
+                }
+                _ => {
+                    log::info!("Unhandled config file event: {event:?}");
+                }
+            },
             Message::SettingsPressed => {
                 self.screen = Screen::Settings;
             }
@@ -249,7 +248,7 @@ impl IracingMonitorGui {
                 if let Err(err) = self.config.save() {
                     log::warn!("Failed to save config to file: {err}");
                 }
-                
+
                 // kill tray
                 if let Some(tray) = &mut self.tray {
                     tray.send(tray::Message::Quit);
@@ -294,38 +293,36 @@ impl IracingMonitorGui {
         column![
             // button("Back").on_press(Message::HomePressed),
             // Space::new(Length::Shrink, Length::Fixed(16.)),
-
             text("MQTT settings"),
             Space::new(Length::Shrink, Length::Fixed(16.)),
-
             row![
                 text("Host").width(text_width),
-                text_input("Host", &self.config.mqtt.host)
-                    .on_input(Message::MqttHostChanged),
-            ].align_y(iced::alignment::Vertical::Center),
+                text_input("Host", &self.config.mqtt.host).on_input(Message::MqttHostChanged),
+            ]
+            .align_y(iced::alignment::Vertical::Center),
             Space::new(Length::Shrink, Length::Fixed(row_spacing)),
             row![
                 text("Port").width(text_width),
                 number_input(self.config.mqtt.port, 0..65535, Message::MqttPortChanged)
                     .ignore_buttons(true)
                     .width(Fill),
-            ].align_y(iced::alignment::Vertical::Center),
+            ]
+            .align_y(iced::alignment::Vertical::Center),
             Space::new(Length::Shrink, Length::Fixed(row_spacing)),
             row![
                 text("User").width(text_width),
-                text_input("User", &self.config.mqtt.user)
-                    .on_input(Message::MqttUserChanged),
-            ].align_y(iced::alignment::Vertical::Center),
+                text_input("User", &self.config.mqtt.user).on_input(Message::MqttUserChanged),
+            ]
+            .align_y(iced::alignment::Vertical::Center),
             Space::new(Length::Shrink, Length::Fixed(row_spacing)),
             row![
                 text("Password").width(text_width),
                 text_input("Password", &self.config.mqtt.password)
                     .on_input(Message::MqttPasswordChanged)
                     .secure(true),
-            ].align_y(iced::alignment::Vertical::Center),
-
+            ]
+            .align_y(iced::alignment::Vertical::Center),
             Space::new(Length::Shrink, Length::Fixed(16.)),
-
             button("Apply MQTT config").on_press(Message::ApplyMqttConfig),
         ]
     }
@@ -346,68 +343,48 @@ impl IracingMonitorGui {
 
         let status = column![
             text(self.state.to_string()).size(16),
-            text(format!("Session type: {}", if let Some(sim_state) = &self.sim_state { sim_state.current_session_type.clone() } else { "None".to_string() })),
+            text(format!(
+                "Session type: {}",
+                if let Some(sim_state) = &self.sim_state {
+                    sim_state.current_session_type.clone()
+                } else {
+                    "None".to_string()
+                }
+            )),
             text(format!("Last message: {last_message}")),
         ];
 
-        // let home_text = if self.screen == Screen::Home {
-        //     text("Home").color(iced::Color::from_rgb(1.0, 0.0, 0.0))
-        // } else {
-        //     text("Home")
-        // };
-        // let settings_text = if self.screen == Screen::Settings {
-        //     text("Settings").color(iced::Color::from_rgb(1.0, 0.0, 0.0))
-        // } else {
-        //     text("Settings")
-        // };
-
         // this seems like a lot of boilerplate to style a container, but it works
-        pub fn left_container_style(_theme: &iced::widget::Theme) -> iced::widget::container::Style {
-            // container::background(iced::Color::from_rgb(0.1, 0.1, 0.1))
-            
-            // from here: https://docs.rs/iced_widget/0.13.1/src/iced_widget/container.rs.html#682
-            // let palette = theme.extended_palette();
+        pub fn left_container_style(
+            _theme: &iced::widget::Theme,
+        ) -> iced::widget::container::Style {
             iced::widget::container::Style {
-                // background: Some(palette.background.weak.color.into()),
-                // background: Some(iced::Background::Color(iced::Color::from_rgba(1., 1., 1., 0.01))),
                 background: Some(iced::Background::Color(iced::Color::TRANSPARENT)),
                 border: iced::border::rounded(2),
                 ..iced::widget::container::Style::default()
             }
         }
         pub fn container_style(_theme: &iced::widget::Theme) -> iced::widget::container::Style {
-            // container::background(iced::Color::from_rgb(0.1, 0.1, 0.1))
-            
-            // from here: https://docs.rs/iced_widget/0.13.1/src/iced_widget/container.rs.html#682
-            // let palette = theme.extended_palette();
+            // see here fore inspiration: https://docs.rs/iced_widget/0.13.1/src/iced_widget/container.rs.html#682
             iced::widget::container::Style {
-                // background: Some(palette.background.weak.color.into()),
-                background: Some(iced::Background::Color(iced::Color::from_rgba(1., 1., 1., 0.01))),
-                // background: Some(iced::Background::Color(iced::Color::TRANSPARENT)),
-                border: iced::border::rounded(2),
-                ..iced::widget::container::Style::default()
-            }
-        }
-        pub fn status_container_style(_theme: &iced::widget::Theme) -> iced::widget::container::Style {
-            // container::background(iced::Color::from_rgb(0.1, 0.1, 0.1))
-            
-            // from here: https://docs.rs/iced_widget/0.13.1/src/iced_widget/container.rs.html#682
-            // let palette = theme.extended_palette();
-            iced::widget::container::Style {
-                // background: Some(palette.background.weak.color.into()),
-                background: Some(iced::Background::Color(iced::Color::from_rgba(0.5, 1., 0.5, 0.01))),
-                // background: Some(iced::Background::Color(iced::Color::TRANSPARENT)),
+                background: Some(iced::Background::Color(iced::Color::from_rgba(
+                    1., 1., 1., 0.01,
+                ))),
                 border: iced::border::rounded(2),
                 ..iced::widget::container::Style::default()
             }
         }
 
-        // pub fn button_style(theme: &iced::widget::Theme, status: iced::widget::button::Status) -> iced::widget::button::Style {
-        pub fn button_style(theme: &iced::widget::Theme, status: iced::widget::button::Status, screen: &Screen, my_screen: &Screen) -> iced::widget::button::Style {
-            use iced::widget::button::{Status, Style};
-            use iced::Background;
+        pub fn button_style(
+            theme: &iced::widget::Theme,
+            status: iced::widget::button::Status,
+            screen: &Screen,
+            my_screen: &Screen,
+        ) -> iced::widget::button::Style {
             use iced::border;
             use iced::theme::palette;
+            use iced::widget::button::{Status, Style};
+            use iced::Background;
 
             // from https://docs.iced.rs/src/iced_widget/button.rs.html#591
             fn styled(pair: palette::Pair) -> Style {
@@ -430,14 +407,12 @@ impl IracingMonitorGui {
             }
 
             let palette = theme.extended_palette();
-            // let base = styled(palette.primary.strong);
             let base = if screen == my_screen {
                 styled(palette.primary.strong)
             } else {
-                // styled(palette.primary.strong)
                 let pair = palette::Pair {
-                    text: iced::Color::WHITE,
-                    color: iced::Color::from_rgb(0.1, 0.1, 0.1),
+                    text: palette.primary.strong.text,
+                    color: iced::Color::from_rgb(0.1, 0.1, 0.1), // background color
                 };
                 styled(pair)
             };
@@ -453,52 +428,47 @@ impl IracingMonitorGui {
         }
 
         // let style = container::background(iced::Color::from_rgb(0.1, 0.1, 0.1));
-        let left_menu = column![
-            container(
-                column![
-                    button(
-                        // home_text
-                        "Home"
-                    )
-                        .width(Length::Fill)
-                        // .style(button_style)
-                        .style(|theme, status| button_style(theme, status, &self.screen, &Screen::Home))
-                        .on_press(Message::HomePressed),
-                    button(
-                        // settings_text
-                        "Settings"
-                    )
-                        .width(Length::Fill)
-                        .style(|theme, status| button_style(theme, status, &self.screen, &Screen::Settings))
-                        .on_press(Message::SettingsPressed),
-                ]
-                // .width(Length::Fixed(96.)),
-            )
-            // .width(Length::Fixed(96.))
-            // .padding(10)
-            // .center(800)
-            // .center(Fill)
-            .align_left(Length::Fixed(150.))
-            .align_top(Length::Fill)
-            // .style(container::rounded_box)
-            .style(left_container_style)
-        ].padding(Padding::new(0.).right(10));
+        let left_menu = column![container(
+            column![
+                button(
+                    // home_text
+                    "Home"
+                )
+                .width(Length::Fill)
+                // .style(button_style)
+                .style(|theme, status| button_style(theme, status, &self.screen, &Screen::Home))
+                .on_press(Message::HomePressed),
+                button(
+                    // settings_text
+                    "Settings"
+                )
+                .width(Length::Fill)
+                .style(|theme, status| button_style(theme, status, &self.screen, &Screen::Settings))
+                .on_press(Message::SettingsPressed),
+            ] // .width(Length::Fixed(96.)),
+        )
+        // .width(Length::Fixed(96.))
+        // .padding(10)
+        // .center(800)
+        // .center(Fill)
+        .align_left(Length::Fixed(150.))
+        .align_top(Length::Fill)
+        // .style(container::rounded_box)
+        .style(left_container_style)]
+        .padding(Padding::new(0.).right(10));
 
         // container(
         column![
             text("iRacing Home Assistant Monitor").size(28),
             row![
                 left_menu,
-                column![   
+                column![
                     // main screen
-                    container(
-                        screen,
-                    )
-                    .align_left(Length::Fill)
-                    .align_top(Length::Fill)
-                    .style(container_style)
-                    .padding(6),
-
+                    container(screen,)
+                        .align_left(Length::Fill)
+                        .align_top(Length::Fill)
+                        .style(container_style)
+                        .padding(6),
                     // status messages
                     // Space::new(Length::Shrink, Length::Fill), // push status to bottom
                     Space::new(Length::Shrink, Length::Fixed(6.)),
@@ -510,11 +480,12 @@ impl IracingMonitorGui {
                                 // .width(Length::Fixed(64.))
                                 .clip(false)
                                 .on_press(Message::Quit),
-                        ].align_y(iced::alignment::Vertical::Bottom) // align to bottom
+                        ]
+                        .align_y(iced::alignment::Vertical::Bottom) // align to bottom
                     )
                     .align_left(Length::Fill)
                     .align_bottom(Length::Shrink)
-                    .style(status_container_style)
+                    .style(container_style)
                     .padding(6),
                 ]
             ]
@@ -551,5 +522,5 @@ fn load_icon() -> Option<iced::window::Icon> {
             log::warn!("Failed to load icon: {e}");
             None
         }
-    }   
+    }
 }

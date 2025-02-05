@@ -1,14 +1,14 @@
 use crate::resources;
 
-use iced::futures::channel::mpsc;
-use iced::futures::StreamExt;
-use iced::futures::{SinkExt, Stream};
-use iced::stream;
-use tray_icon::menu::{AboutMetadata, MenuId, PredefinedMenuItem};
-use std::time::Duration;
+use futures::channel::mpsc;
+use futures::stream::Stream;
+use futures::prelude::sink::SinkExt;
+use futures::prelude::stream::StreamExt;
+use iced::stream as iced_stream;
+use tray_icon::menu::{MenuId, PredefinedMenuItem};
 use tray_icon::{
-    menu::{Menu, MenuEvent, MenuItem},
-    TrayIcon, TrayIconBuilder, TrayIconEvent,
+    menu::MenuEvent,
+    TrayIcon, TrayIconBuilder,
 };
 use anyhow::Result;
 
@@ -53,7 +53,7 @@ pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
         }
     }));
 
-    stream::channel(100, |mut output| async move {
+    iced_stream::channel(100, |mut output| async move {
         // Create channels for events from frontend
         let (frontend_sender, mut frontend_receiver) = mpsc::channel(100);
 

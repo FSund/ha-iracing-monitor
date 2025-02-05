@@ -2,10 +2,11 @@ use crate::iracing_client;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use iced::futures::channel::mpsc;
-use iced::futures::StreamExt;
-use iced::futures::{SinkExt, Stream};
-use iced::stream;
+use futures::channel::mpsc;
+use futures::prelude::sink::SinkExt;
+use futures::prelude::stream::StreamExt;
+use futures::stream::Stream;
+use iced::stream as iced_stream;
 use iracing_client::SimClient;
 use rumqttc::{AsyncClient, MqttOptions, QoS};
 use serde::{Deserialize, Serialize};
@@ -82,7 +83,8 @@ impl SimMonitor {
             handle.abort();
         }
 
-        let mut mqtt_options = MqttOptions::new("iracing-monitor", mqtt_config.host, mqtt_config.port);
+        let mut mqtt_options =
+            MqttOptions::new("iracing-monitor", mqtt_config.host, mqtt_config.port);
         mqtt_options.set_keep_alive(Duration::from_secs(5));
         mqtt_options.set_credentials(mqtt_config.user, mqtt_config.password);
         let (mqtt_client, mut mqtt_eventloop) = AsyncClient::new(mqtt_options, 10);
@@ -103,7 +105,7 @@ impl SimMonitor {
                         // log::error!("MQTT error (will retry automatically): {:?}", e);
                     }
                 }
-                
+
                 // Small yield to prevent tight loop
                 // tokio::task::yield_now().await;
 
@@ -128,9 +130,16 @@ impl SimMonitor {
         if Some(state) != self.last_state.as_ref() {
             if let Some(mqtt) = self.mqtt.as_mut() {
                 let payload = serde_json::to_string(&state)?;
-                log::debug!("Attempting to publish to topic: {} with payload: {}", &self.mqtt_topic, &payload);
-                
-                match mqtt.publish(&self.mqtt_topic, QoS::AtLeastOnce, false, payload).await {
+                log::debug!(
+                    "Attempting to publish to topic: {} with payload: {}",
+                    &self.mqtt_topic,
+                    &payload
+                );
+
+                match mqtt
+                    .publish(&self.mqtt_topic, QoS::AtLeastOnce, false, payload)
+                    .await
+                {
                     Ok(_) => {
                         log::debug!("Successfully published state: {:?}", state);
                         self.last_state = Some(state.clone());
@@ -256,13 +265,13 @@ impl std::fmt::Display for Event {
 pub fn connect() -> impl Stream<Item = Event> {
     let mut monitor = SimMonitor::new();
 
-    stream::channel(100, |mut output| async move {
+    iced_stream::channel(100, |mut output| async move {
         // Create channel
         let (sender, mut receiver) = mpsc::channel(100);
 
-         // MQTT state update interval
-         const UPDATE_INTERVAL: Duration = Duration::from_secs(1);
-         let mut interval = tokio::time::interval(UPDATE_INTERVAL);
+        // MQTT state update interval
+        const UPDATE_INTERVAL: Duration = Duration::from_secs(1);
+        let mut interval = tokio::time::interval(UPDATE_INTERVAL);
 
         // Send the sender back to the application
         output

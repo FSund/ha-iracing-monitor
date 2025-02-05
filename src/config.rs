@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-// use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::sync::RwLock;
 use std::time::Duration;
@@ -9,10 +7,12 @@ use std::fs;
 use tokio::sync::mpsc;
 use config::{Config, File};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use iced::futures::{SinkExt, Stream};
+use futures::stream::Stream;
+use futures::prelude::sink::SinkExt;
 use serde::Deserialize;
 use serde::Serialize;
 use anyhow::{Context, Result};
+use iced::stream as iced_stream;
 
 use crate::sim_monitor::MqttConfig;
 
@@ -184,7 +184,7 @@ pub enum Event {
 }
 
 pub fn watch_config() -> impl Stream<Item = Event> {
-    iced::stream::channel(100, |mut output| async move {
+    iced_stream::channel(100, |mut output| async move {
         // Create a channel to receive the file system events
         let (tx, mut rx) = mpsc::channel(100);
 
