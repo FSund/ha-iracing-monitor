@@ -30,6 +30,18 @@ jobs:
           # Make Rust compile to our target (defined in the matrix)
           targets: ${{ matrix.target }}
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libglib2.0-dev \
+            libpango1.0-dev \
+            libgdk-pixbuf2.0-dev \
+            libatk1.0-dev \
+            libgtk-3-dev \
+            libxdo-dev \
+            pkg-config
+
       - name: Build
         uses: actions-rs/cargo@v1
         with:
