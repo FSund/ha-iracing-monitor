@@ -44,4 +44,4 @@ jobs:
         run: cargo test --verbose
 
       - name: Build
-        run: cargo build --release --all-features
+        run: cargo build --release
