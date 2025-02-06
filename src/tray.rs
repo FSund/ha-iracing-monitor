@@ -2,9 +2,7 @@ use crate::resources;
 
 use futures::channel::mpsc;
 use futures::stream::Stream;
-use futures::prelude::sink::SinkExt;
 use futures::prelude::stream::StreamExt;
-use iced::stream as iced_stream;
 use tray_icon::menu::{MenuId, PredefinedMenuItem};
 use tray_icon::{
     menu::MenuEvent,
@@ -37,60 +35,43 @@ impl Connection {
 
 // Create the tray subscription
 pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
-    // Create a channel for events from the tray
-    let (menu_sender, mut menu_receiver) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(100);
+    let (frontend_sender, frontend_receiver) = mpsc::channel(100);
 
-    // Set up the event handler with a move closure that sends to the channel
-    MenuEvent::set_event_handler(Some(move |event| {
-        let mut sender = menu_sender.clone();
-
-        // Use a blocking channel send instead of spawning a task (no tokio runtime available?)
+    // Set up the menu event handler
+    MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+        let mut sender = tx.clone();
+        let message = TrayEventType::MenuItemClicked(event.id.clone());
+        
         log::debug!("Sending menu event {event:?} to channel");
-        if let Ok(()) = sender.try_send(event) {
-            log::debug!("Menu event sent to channel");
-        } else {
-            log::error!("Failed to send menu event to channel");
+        match sender.try_send(message) {
+            Ok(()) => log::debug!("Menu event sent to channel"),
+            Err(err) => log::error!("Failed to send menu event to channel: {}", err)
         }
     }));
 
-    iced_stream::channel(100, |mut output| async move {
-        // Create channels for events from frontend
-        let (frontend_sender, mut frontend_receiver) = mpsc::channel(100);
+    // Create the initial connection event stream
+    let init_stream = futures::stream::once(async move {
+        TrayEventType::Connected(Connection(frontend_sender))
+    });
 
-        // Send the sender back to the application
-        output
-            .send(TrayEventType::Connected(Connection(frontend_sender)))
-            .await
-            .expect("Unable to send");
-
-        loop {
-            tokio::select! {
-                // Process events from tray
-                Some(menu_event) = menu_receiver.next() => {
-                    log::debug!("Received MenuEvent");
-                    // Send tray events to frontend
-                    output.send(TrayEventType::MenuItemClicked(menu_event.id))
-                        .await
-                        .expect("Unable to send event");
-                }
-
-                // Process events from frontend
-                Some(message) = frontend_receiver.next() => {
-                    match message {
-                        Message::Quit => {
-                            log::info!("Quitting tray icon");
-                            break;
-                        }
-                    }
-                }
-                else => {
-                    // break out of loop if no more events
-                    log::debug!("Both receivers are closed");
-                    break;
-                }
-            }
+    // Convert the frontend receiver into a stream that ends on Quit message
+    let frontend_stream = frontend_receiver.take_while(|msg| {
+        let continue_running = !matches!(msg, Message::Quit);
+        if !continue_running {
+            log::info!("Quitting tray icon");
         }
-    })
+        futures::future::ready(continue_running)
+    }).filter_map(|_| futures::future::ready(None));
+
+    // Merge all streams together
+    futures::stream::select(
+        init_stream,
+        futures::stream::select(
+            rx,
+            frontend_stream
+        )
+    )
 }
 
 fn load_icon() -> Result<tray_icon::Icon> {
