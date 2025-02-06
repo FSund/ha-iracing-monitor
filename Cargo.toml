@@ -28,28 +28,10 @@ yaml-rust = "0.4.5"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 simetry = { version = "0.2.3", default-features = false }
+#windows = "0.59.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18.2"
-
-[[example]]
-name = "get_telemetry"
-required-features = ["iracing"]
-
-[[example]]
-name = "dump_sample"
-required-features = ["iracing"]
-
-[[example]]
-name = "iracing_telem_sample"
-required-features = ["iracing-telem"]
-
-[[example]]
-name = "simetry_sample"
-
-[dev-dependencies]
-iracing = "0.4.1"
-iracing-telem = "0.2.1"
 
 [profile.release]
 #opt-level = 'z'     # Optimize for size
