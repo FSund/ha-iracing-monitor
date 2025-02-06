@@ -1,14 +1,11 @@
 use crate::resources;
 
-use futures::channel::mpsc;
-use futures::stream::Stream;
-use futures::prelude::stream::StreamExt;
-use tray_icon::menu::{MenuId, PredefinedMenuItem};
-use tray_icon::{
-    menu::MenuEvent,
-    TrayIcon, TrayIconBuilder,
-};
 use anyhow::Result;
+use futures::channel::mpsc;
+use futures::prelude::stream::StreamExt;
+use futures::stream::Stream;
+use tray_icon::menu::{MenuId, PredefinedMenuItem};
+use tray_icon::{menu::MenuEvent, TrayIcon, TrayIconBuilder};
 
 // Events from tray (to frontend)
 #[derive(Debug, Clone)]
@@ -42,36 +39,31 @@ pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let mut sender = tx.clone();
         let message = TrayEventType::MenuItemClicked(event.id.clone());
-        
+
         log::debug!("Sending menu event {event:?} to channel");
         match sender.try_send(message) {
             Ok(()) => log::debug!("Menu event sent to channel"),
-            Err(err) => log::error!("Failed to send menu event to channel: {}", err)
+            Err(err) => log::error!("Failed to send menu event to channel: {}", err),
         }
     }));
 
     // Create the initial connection event stream
-    let init_stream = futures::stream::once(async move {
-        TrayEventType::Connected(Connection(frontend_sender))
-    });
+    let init_stream =
+        futures::stream::once(async move { TrayEventType::Connected(Connection(frontend_sender)) });
 
     // Convert the frontend receiver into a stream that ends on Quit message
-    let frontend_stream = frontend_receiver.take_while(|msg| {
-        let continue_running = !matches!(msg, Message::Quit);
-        if !continue_running {
-            log::info!("Quitting tray icon");
-        }
-        futures::future::ready(continue_running)
-    }).filter_map(|_| futures::future::ready(None));
+    let frontend_stream = frontend_receiver
+        .take_while(|msg| {
+            let continue_running = !matches!(msg, Message::Quit);
+            if !continue_running {
+                log::info!("Quitting tray icon");
+            }
+            futures::future::ready(continue_running)
+        })
+        .filter_map(|_| futures::future::ready(None));
 
     // Merge all streams together
-    futures::stream::select(
-        init_stream,
-        futures::stream::select(
-            rx,
-            frontend_stream
-        )
-    )
+    futures::stream::select(init_stream, futures::stream::select(rx, frontend_stream))
 }
 
 fn load_icon() -> Result<tray_icon::Icon> {
@@ -99,7 +91,8 @@ pub fn new_tray_icon() -> TrayIcon {
         // ),
         // &PredefinedMenuItem::separator(),
         &quit_item,
-    ]).expect("Failed to append items");
+    ])
+    .expect("Failed to append items");
 
     // Add menu and tooltip
     let mut builder = TrayIconBuilder::new()
@@ -114,7 +107,5 @@ pub fn new_tray_icon() -> TrayIcon {
     }
 
     // Build the tray icon
-    builder
-        .build()
-        .unwrap()
+    builder.build().unwrap()
 }
