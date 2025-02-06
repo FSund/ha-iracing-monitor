@@ -4,11 +4,13 @@ use std::time::Duration;
 use std::path::{Path, PathBuf};
 use std::fs;
 
-use tokio::sync::mpsc;
+// use tokio::sync::mpsc;
+use futures::channel::mpsc;
 use config::{Config, File};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use futures::stream::Stream;
 use futures::prelude::sink::SinkExt;
+use futures::prelude::stream::StreamExt;
 use serde::Deserialize;
 use serde::Serialize;
 use anyhow::{Context, Result};
@@ -177,79 +179,132 @@ fn show() {
     log::debug!("Current settings: {:?}", settings().read().unwrap().clone());
 }
 
+// #[derive(Debug, Clone)]
+// pub enum Event {
+//     ConfigUpdated(AppConfig),
+//     WatchError(String),
+// }
+
+// pub fn watch_config() -> impl Stream<Item = Event> {
+//     iced_stream::channel(100, |mut output| async move {
+//         // Create a channel to receive the file system events
+//         let (tx, mut rx) = mpsc::channel(100);
+
+//         // Create the file system watcher
+//         let mut watcher: RecommendedWatcher = Watcher::new(
+//             move |event| {
+//                 let mut sender = tx.clone();
+        
+//                 // Create a new Tokio runtime for handling the async send
+//                 let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+//                 log::debug!("Sending config event {event:?} to channel");
+//                 rt.spawn(async move {
+//                     if let Err(e) = sender.send(event).await {
+//                         log::error!("Failed to send config event: {e}");
+//                     } else {
+//                         log::debug!("Config event sent to channel");
+//                     }
+//                 });
+//             },
+//             notify::Config::default().with_poll_interval(Duration::from_secs(2)),
+//         )
+//         .expect("Failed to create watcher");
+
+//         // Watch the config file
+//         let config_path = get_config_path();
+//         log::debug!("Watching config file {config_path:?}");
+//         watcher
+//             .watch(
+//                 &config_path,
+//                 RecursiveMode::NonRecursive,
+//             )
+//             .expect("Failed to watch path");
+
+//         loop {
+//             tokio::select! {
+//                 Some(res) = rx.next() => {
+//                     match res {
+//                         Ok(notify::Event {
+//                             kind: notify::event::EventKind::Modify(_),
+//                             ..
+//                         }) => {
+//                             log::info!("Config file modified; refreshing configuration ...");
+//                             refresh();
+//                             show();
+//                             output
+//                                 .send(Event::ConfigUpdated(get_app_config()))
+//                                 .await
+//                                 .expect("Failed to send event");
+//                         }
+
+//                         Err(e) => {
+//                             log::error!("Watch error: {e:?}");
+//                             output
+//                                 .send(Event::WatchError(e.to_string()))
+//                                 .await
+//                                 .expect("Failed to send error event");
+//                         }
+                        
+//                         _ => {
+//                             // Ignore other events
+//                         }
+//                     }
+//                 }
+//                 else => {
+//                     log::error!("Channel closed");
+//                     break;
+//                 }
+//             }
+//         }
+//     })
+// }
+
+
+
+
+
 #[derive(Debug, Clone)]
 pub enum Event {
-    ConfigUpdated(AppConfig),
-    WatchError(String),
+    Created(AppConfig),
+    Modified(AppConfig),
+    Deleted(PathBuf),
 }
 
-pub fn watch_config() -> impl Stream<Item = Event> {
-    iced_stream::channel(100, |mut output| async move {
-        // Create a channel to receive the file system events
-        let (tx, mut rx) = mpsc::channel(100);
-
-        // Create the file system watcher
-        let mut watcher: RecommendedWatcher = Watcher::new(
-            move |event| {
-                let sender = tx.clone();
-        
-                // Use a blocking channel send instead of spawning a task (no tokio runtime available?)
-                log::debug!("Sending config event {event:?} to channel");
-                if let Ok(()) = sender.try_send(event) {
-                    log::debug!("Config event sent to channel");
-                } else {
-                    log::error!("Failed to send config event to channel");
-                }
-            },
-            notify::Config::default().with_poll_interval(Duration::from_secs(2)),
-        )
-        .expect("Failed to create watcher");
-
-        // Watch the config file
-        let config_path = get_config_path();
-        log::debug!("Watching config file {config_path:?}");
-        watcher
-            .watch(
-                &config_path,
-                RecursiveMode::NonRecursive,
-            )
-            .expect("Failed to watch path");
-
-        loop {
-            tokio::select! {
-                Some(res) = rx.recv() => {
-                    match res {
-                        Ok(notify::Event {
-                            kind: notify::event::EventKind::Modify(_),
-                            ..
-                        }) => {
-                            log::info!("Config file modified; refreshing configuration ...");
-                            refresh();
-                            show();
-                            output
-                                .send(Event::ConfigUpdated(get_app_config()))
-                                .await
-                                .expect("Failed to send event");
-                        }
-
-                        Err(e) => {
-                            log::error!("Watch error: {e:?}");
-                            output
-                                .send(Event::WatchError(e.to_string()))
-                                .await
-                                .expect("Failed to send error event");
-                        }
-                        
-                        _ => {
-                            // Ignore other events
-                        }
+pub fn watch() -> impl Stream<Item = Event> {
+    let (tx, rx) = mpsc::unbounded(); // not sure why unbounded is used here (I don't know what it does)
+    let file_path = get_config_path();
+    
+    // Create the watcher upfront, panic on failure
+    let mut watcher = RecommendedWatcher::new(
+        move |res: Result<notify::Event, notify::Error>| {
+            if let Ok(event) = res {
+                let events = event.paths.into_iter().filter_map(|path| {
+                    use notify::EventKind::*;
+                    match event.kind {
+                        // Create(_) => Some(FileEvent::Created(path)),
+                        // Modify(_) => Some(FileEvent::Modified(path)),
+                        Create(_) => Some(Event::Created(get_app_config())),
+                        Modify(_) => Some(Event::Modified(get_app_config())),
+                        Remove(_) => Some(Event::Deleted(path)),
+                        _ => None,
                     }
-                }
-                else => {
-                    log::error!("Channel closed");
-                    break;
+                });
+
+                for event in events {
+                    let _ = tx.unbounded_send(event);
                 }
             }
-        }
+        },
+        notify::Config::default(),
+    ).expect("Failed to create file watcher");
+
+    // Start watching the path, panic on failure
+    watcher.watch(&file_path, RecursiveMode::Recursive)
+        .expect("Failed to watch path");
+
+    // Keep watcher alive by storing it in the stream
+    futures::stream::unfold((watcher, rx), |(watcher, mut rx)| async move {
+        let event = rx.next().await.expect("File watcher channel closed");
+        Some((event, (watcher, rx)))
     })
 }

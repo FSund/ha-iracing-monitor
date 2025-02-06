@@ -221,14 +221,11 @@ impl IracingMonitorGui {
                 }
             }
             Message::ConfigFileEvent(event) => match event {
-                config::Event::ConfigUpdated(config) => {
-                    log::info!("Config file changed: {config:?}");
+                config::Event::Modified(config) | config::Event::Created(config) => {
+                    log::info!("Config file updated: {config:?}");
                 }
-                config::Event::WatchError(err) => {
-                    log::warn!("Config file error: {err}");
-                }
-                _ => {
-                    log::info!("Unhandled config file event: {event:?}");
+                config::Event::Deleted(path) => {
+                    log::info!("Config file {path:?} deleted");
                 }
             },
             Message::SettingsPressed => {
@@ -510,7 +507,7 @@ impl IracingMonitorGui {
             keyboard::on_key_press(handle_hotkey),
             Subscription::run(sim_monitor::connect).map(Message::SimUpdated),
             Subscription::run(tray::tray_subscription).map(Message::TrayEvent),
-            Subscription::run(config::watch_config).map(Message::ConfigFileEvent),
+            Subscription::run(config::watch).map(Message::ConfigFileEvent),
         ])
     }
 }
