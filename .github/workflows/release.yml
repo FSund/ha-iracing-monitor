@@ -12,7 +12,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64-pc-windows-gnu, x86_64-unknown-linux-musl]
+        include:
+          - target: x86_64-pc-windows-gnu
+            archive-suffix: .zip
+          - target: x86_64-unknown-linux-musl
+            archive-suffix: .tar.gz
 
     steps:
       - name: Checkout
@@ -23,14 +27,24 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
       - name: Install Rust
-        # Or @nightly if you want
         uses: dtolnay/rust-toolchain@stable
-        # Arguments to pass in
         with:
-          # Make Rust compile to our target (defined in the matrix)
           targets: ${{ matrix.target }}
 
+      # Cache dependencies to speed up builds
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+
       - name: Install dependencies
+        #if: matrix.target == 'x86_64-unknown-linux-musl'  # Only for Linux builds
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -52,27 +66,43 @@ jobs:
       - name: Build archive
         shell: bash
         run: |
-          # Replace with the name of your binary
-          binary_name="ha-iracing-monitor"
+          # Get binary name from Cargo.toml
+          binary_name=$(grep -m1 'name *=' Cargo.toml | cut -d '"' -f2)
+
+          # Create dist directory if it doesn't exist
+          mkdir -p dist
 
           dirname="$binary_name-${{ env.VERSION }}-${{ matrix.target }}"
           mkdir "$dirname"
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          
+          # Copy binary
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
             mv "target/${{ matrix.target }}/release/$binary_name.exe" "$dirname"
           else
             mv "target/${{ matrix.target }}/release/$binary_name" "$dirname"
           fi
 
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            7z a "$dirname.zip" "$dirname"
-            echo "ASSET=$dirname.zip" >> $GITHUB_ENV
+          # Copy additional files
+          cp README.md LICENSE* "$dirname" 2>/dev/null || true
+
+          # Create archive based on target
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            7z a "dist/$dirname.zip" "$dirname"
+            echo "ASSET=dist/$dirname.zip" >> $GITHUB_ENV
           else
-            tar -czf "$dirname.tar.gz" "$dirname"
-            echo "ASSET=$dirname.tar.gz" >> $GITHUB_ENV
+            tar -czf "dist/$dirname.tar.gz" "$dirname"
+            echo "ASSET=dist/$dirname.tar.gz" >> $GITHUB_ENV
           fi
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          echo "CHECKSUM_FILE=dist/SHA256SUMS" >> $GITHUB_ENV
 
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             ${{ env.ASSET }}
+            ${{ env.CHECKSUM_FILE }}
