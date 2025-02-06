@@ -23,10 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - name: Set up Rust
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
 
       - name: Install dependencies
         run: |
