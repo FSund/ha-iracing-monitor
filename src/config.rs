@@ -100,7 +100,7 @@ pub enum Event {
 }
 
 pub fn watch() -> impl Stream<Item = Event> {
-    let (tx, rx) = mpsc::unbounded(); // not sure why unbounded is used here (I don't know what it does)
+    let (mut tx, rx) = mpsc::channel(100);
     let file_path = get_config_path();
 
     // Create the watcher upfront, panic on failure
@@ -120,7 +120,7 @@ pub fn watch() -> impl Stream<Item = Event> {
                 });
 
                 for event in events {
-                    let _ = tx.unbounded_send(event);
+                    let _ = tx.try_send(event);
                 }
             }
         },
