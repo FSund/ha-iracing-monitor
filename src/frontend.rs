@@ -1,6 +1,8 @@
 use crate::config;
 use crate::resources;
 use crate::sim_monitor;
+
+#[cfg(feature = "tray")]
 use crate::tray;
 
 use iced::widget::checkbox;
@@ -502,13 +504,17 @@ impl IracingMonitorGui {
             }
         }
 
-        Subscription::batch(vec![
+        let mut subscriptions = vec![
             window::close_events().map(Message::WindowClosed),
             keyboard::on_key_press(handle_hotkey),
             Subscription::run(sim_monitor::connect).map(Message::SimUpdated),
-            Subscription::run(tray::tray_subscription).map(Message::TrayEvent),
             Subscription::run(config::watch).map(Message::ConfigFileEvent),
-        ])
+        ];
+    
+        #[cfg(feature = "tray")]
+        subscriptions.push(Subscription::run(tray::tray_subscription).map(Message::TrayEvent));
+    
+        Subscription::batch(subscriptions)
     }
 }
 
