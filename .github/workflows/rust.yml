@@ -40,9 +40,6 @@ jobs:
             pkg-config \
             mingw-w64
 
-      - name: Check glibc version
-        run: ldd --version
-
       - name: Run tests
         run: cargo test --verbose
 
