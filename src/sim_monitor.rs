@@ -1,4 +1,5 @@
 use crate::iracing_client;
+use crate::config;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -100,9 +101,11 @@ impl SimMonitor {
                     Ok(notification) => {
                         log::debug!("MQTT event: {:?}", notification);
                     }
-                    Err(_e) => {
+                    Err(e) => {
                         // Just log the error but keep polling - the event loop will handle reconnection
                         // log::error!("MQTT error (will retry automatically): {:?}", e);
+                        log::error!("MQTT error {e}");
+                        tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
                     }
                 }
 
@@ -110,7 +113,7 @@ impl SimMonitor {
                 // tokio::task::yield_now().await;
 
                 // TODO: is this the way?
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
             }
         }));
 
@@ -130,27 +133,27 @@ impl SimMonitor {
         if Some(state) != self.last_state.as_ref() {
             if let Some(mqtt) = self.mqtt.as_mut() {
                 let payload = serde_json::to_string(&state)?;
-                log::debug!(
-                    "Attempting to publish to topic: {} with payload: {}",
-                    &self.mqtt_topic,
-                    &payload
-                );
-
-                match mqtt
-                    .publish(&self.mqtt_topic, QoS::AtLeastOnce, false, payload)
-                    .await
-                {
-                    Ok(_) => {
-                        log::debug!("Successfully published state: {:?}", state);
-                        self.last_state = Some(state.clone());
+                let topic = self.mqtt_topic.clone();
+                
+                // Spawn MQTT publish in separate task
+                let mqtt = mqtt.clone();
+                let state_clone = state.clone();
+                tokio::spawn(async move {
+                    match mqtt
+                        .publish(&topic, QoS::AtLeastOnce, false, payload)
+                        .await
+                    {
+                        Ok(_) => {
+                            log::debug!("Successfully published state via MQTT");
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to publish state via MQTT: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        log::error!("Failed to publish MQTT message: {}", e);
-                        return Err(e.into());
-                    }
-                }
+                });
+                self.last_state = Some(state_clone);
             } else {
-                log::debug!("Unable to publish state, missing MQTT config");
+                log::debug!("Unable to publish state to MQTT, missing MQTT config");
             }
         }
         Ok(())
@@ -193,6 +196,13 @@ impl Drop for SimMonitor {
         if let Some(handle) = self.mqtt_eventloop_handle.take() {
             handle.abort();
         }
+        // Disconnect MQTT client if it exists
+        if let Some(mqtt) = self.mqtt.as_mut() {
+            // Use blocking disconnect since we're in drop
+            if let Err(e) = futures::executor::block_on(mqtt.disconnect()) {
+                log::warn!("Error disconnecting MQTT client during cleanup: {}", e);
+            }
+        }
     }
 }
 
@@ -231,7 +241,7 @@ async fn register_device(mqtt: &mut AsyncClient) -> Result<()> {
 // messages to SimMonitor
 #[derive(Debug, Clone)]
 pub enum Message {
-    UpdateConfig(MqttConfig),
+    UpdateConfig(config::AppConfig),
 }
 
 #[derive(Debug, Clone)]
@@ -269,7 +279,7 @@ pub fn connect() -> impl Stream<Item = Event> {
         // Create channel
         let (sender, mut receiver) = mpsc::channel(100);
 
-        // MQTT state update interval
+        // Sim state update interval
         const UPDATE_INTERVAL: Duration = Duration::from_secs(1);
         let mut interval = tokio::time::interval(UPDATE_INTERVAL);
 
@@ -284,17 +294,27 @@ pub fn connect() -> impl Stream<Item = Event> {
                 // Handle incoming messages
                 Some(input) = receiver.next() => {
                     match input {
-                        Message::UpdateConfig(mqtt_config) => {
-                            log::info!("Updating mqtt config");
-                            monitor.update_mqtt_config(mqtt_config).await;
+                        Message::UpdateConfig(config) => {
+                            log::debug!("Received config update");
+                            if config.mqtt_enabled {
+                                log::info!("Updating mqtt config");
+                                monitor.update_mqtt_config(config.mqtt).await;
+                            } else if monitor.mqtt.is_some() {
+                                log::info!("Disabling MQTT");
+                                if let Some(handle) = monitor.mqtt_eventloop_handle.take() {
+                                    handle.abort();
+                                }
+                                monitor.mqtt = None;
+                            }
                         }
                     }
                 }
                 // Periodic state update
                 _ = interval.tick() => {
                     let state = monitor.get_current_state().await;
+                    log::debug!("Latest state: {:?}", state);
                     if let Err(e) = monitor.publish_state(&state).await {
-                        log::warn!("Failed to publish state: {}", e);
+                        log::warn!("Failed to publish state to MQTT: {}", e);
                     }
 
                     // Publish state event

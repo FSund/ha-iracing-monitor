@@ -150,7 +150,7 @@ impl IracingMonitorGui {
                     log::warn!("Failed to save config to file: {err}");
                 }
 
-                let msg = sim_monitor::Message::UpdateConfig(self.config.mqtt.clone());
+                let msg = sim_monitor::Message::UpdateConfig(self.config.clone());
                 match &mut self.state {
                     State::ConnectedToBackend(connection) => {
                         connection.send(msg);
