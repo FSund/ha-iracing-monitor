@@ -134,20 +134,32 @@ impl SimMonitor {
             if let Some(mqtt) = self.mqtt.as_mut() {
                 let payload = serde_json::to_string(&state)?;
                 let topic = self.mqtt_topic.clone();
+                log::debug!(
+                    "Attempting to publish to topic: {} with payload: {}",
+                    &self.mqtt_topic,
+                    &payload
+                );
                 
                 // Spawn MQTT publish in separate task
                 let mqtt = mqtt.clone();
                 let state_clone = state.clone();
                 tokio::spawn(async move {
-                    match mqtt
-                        .publish(&topic, QoS::AtLeastOnce, false, payload)
-                        .await
-                    {
-                        Ok(_) => {
-                            log::debug!("Successfully published state via MQTT");
-                        }
-                        Err(e) => {
-                            log::warn!("Failed to publish state via MQTT: {}", e);
+                    match tokio::time::timeout(
+                        Duration::from_secs(5), // 5 second timeout
+                        mqtt.publish(&topic, QoS::AtLeastOnce, false, payload)
+                    ).await {
+                        Ok(result) => match result {
+                            Ok(_) => {
+                                // this isn't really true, it just means the connection
+                                // hasn't timed out yet
+                                log::debug!("Successfully published state via MQTT");
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to publish state via MQTT: {}", e);
+                            }
+                        },
+                        Err(_) => {
+                            log::warn!("MQTT publish operation timed out after 5 seconds");
                         }
                     }
                 });

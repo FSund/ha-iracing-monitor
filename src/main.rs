@@ -91,7 +91,9 @@ async fn main() -> iced::Result {
                 Some(event) = sim_events.next() => {
                     log::debug!("sim event: {:?}", event);
                     match event {
-                        sim_monitor::Event::Ready(connection) => {
+                        sim_monitor::Event::Ready(mut connection) => {
+                            // send the current config to the sim monitor
+                            connection.send(sim_monitor::Message::UpdateConfig(config.clone()));
                             sim_monitor_connection = Some(connection);
                         }
                         sim_monitor::Event::ConnectedToSim(_state) => {
@@ -133,8 +135,9 @@ async fn main() -> iced::Result {
                         // }
                         config::Event::Created(app_config) | config::Event::Modified(app_config) => {
                             log::debug!("Config created or modified");
+                            let config = app_config;
                             if let Some(ref mut connection) = sim_monitor_connection {
-                                connection.send(sim_monitor::Message::UpdateConfig(app_config.clone()));
+                                connection.send(sim_monitor::Message::UpdateConfig(config.clone()));
                             }
                         }
                         config::Event::Deleted(_path) => {

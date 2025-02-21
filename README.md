@@ -1,9 +1,9 @@
 # iRacing Home Assistant Monitor
 
 ## TODO
-- [ ] Fix sim_monitor stops responding/stream dies if an invalid mqtt config is provided
-- [ ] Separate backend and frontend
-- [x Fix config update when config file is changed (does not seem to work at the moment, default config is always returned)
+- [x] Fix sim_monitor stops responding/stream dies if an invalid mqtt config is provided
+- [x] Separate backend and frontend
+- [x] Fix config update when config file is changed (does not seem to work at the moment, default config is always returned)
 - [x] Config file to retain settings between runs
 - [ ] Encrypt mqtt password in config file
 - [x] Settings pages
