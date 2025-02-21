@@ -7,6 +7,7 @@ mod tray;
 mod resources;
 mod config;
 
+use config::AppConfig;
 use env_logger::{Builder, Target};
 use log::LevelFilter;
 use frontend::IracingMonitorGui;
@@ -14,6 +15,9 @@ use std::fs;
 use chrono::Local;
 
 use futures::prelude::stream::StreamExt;
+use futures::prelude::sink::SinkExt;
+use futures::stream::Stream;
+use iced::stream as iced_stream;
 
 #[tokio::main]
 async fn main() -> iced::Result {
@@ -78,7 +82,31 @@ async fn main() -> iced::Result {
             .theme(IracingMonitorGui::theme)
             .run_with(IracingMonitorGui::new)
             .expect("Iced frontend failed");
+
+        // Notes for myself
+        // - the frontend should not worry about the config file or config events, it should only keep an internal state that gets
+        //   saved to the config file when the user changes something, and updated (via message from the backend) when the config file changes
+        // - sim status and tray events should be sent to the frontend via messages from the backend
     } else {
+        // run the connect() stream
+        let mut stream = Box::pin(connect(config));
+        while let Some(event) = stream.next().await {
+            log::debug!("event: {:?}", event);
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub enum Event {
+    Sim(sim_monitor::Event),
+    Tray(tray::TrayEventType),
+    ConfigFile(config::Event),
+}
+
+pub fn connect(config: AppConfig) -> impl Stream<Item = Event> {
+    iced_stream::channel(100, |mut output| async move {
         // pin the streams to the stack
         let mut sim_events = Box::pin(sim_monitor::connect());
         let mut tray_events = Box::pin(tray::tray_subscription());
@@ -90,7 +118,7 @@ async fn main() -> iced::Result {
             tokio::select! {
                 Some(event) = sim_events.next() => {
                     log::debug!("sim event: {:?}", event);
-                    match event {
+                    match event.clone() {
                         sim_monitor::Event::Ready(mut connection) => {
                             // send the current config to the sim monitor
                             connection.send(sim_monitor::Message::UpdateConfig(config.clone()));
@@ -103,10 +131,11 @@ async fn main() -> iced::Result {
                             log::debug!("Disconnected from sim");
                         }
                     }
+                    output.send(Event::Sim(event)).await.unwrap();
                 }
                 Some(event) = tray_events.next() => {
                     log::debug!("tray event: {:?}", event);
-                    if let tray::TrayEventType::MenuItemClicked(menu_id) = event {
+                    if let tray::TrayEventType::MenuItemClicked(menu_id) = event.clone() {
                         log::debug!("menu_id: {:?}", menu_id);
                         match menu_id.0.as_str() {
                             "quit" => {
@@ -126,16 +155,21 @@ async fn main() -> iced::Result {
                             }
                         }
                     }
+                    output.send(Event::Tray(event)).await.unwrap();
                 }
                 Some(event) = config_events.next() => {
                     log::debug!("config event: {:?}", event);
-                    match event {
+                    match event.clone() {
                         // config::Event::Created(app_config) => {
                         //     log::debug!("Config created");
                         // }
                         config::Event::Created(app_config) | config::Event::Modified(app_config) => {
                             log::debug!("Config created or modified");
+                            
+                            // store update config
                             let config = app_config;
+
+                            // send the updated config to the sim monitor
                             if let Some(ref mut connection) = sim_monitor_connection {
                                 connection.send(sim_monitor::Message::UpdateConfig(config.clone()));
                             }
@@ -144,10 +178,9 @@ async fn main() -> iced::Result {
                             log::debug!("Config deleted");
                         }
                     }
+                    output.send(Event::ConfigFile(event)).await.unwrap();
                 }
             }
         }
-    }
-
-    Ok(())
+    })
 }

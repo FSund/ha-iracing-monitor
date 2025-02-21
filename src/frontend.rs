@@ -26,7 +26,6 @@ pub enum Message {
 
     SimUpdated(sim_monitor::Event),
     TrayEvent(tray::TrayEventType),
-
     ConfigFileEvent(config::Event),
 
     SettingsPressed,
