@@ -8,32 +8,23 @@ mod tray;
 mod resources;
 mod config;
 
-use config::AppConfig;
-use env_logger::{Builder, Target};
-use log::LevelFilter;
 use frontend::IracingMonitorGui;
-use std::fs;
-use chrono::Local;
 
 use futures::prelude::stream::StreamExt;
-use futures::prelude::sink::SinkExt;
-use futures::stream::Stream;
-use iced::stream as iced_stream;
+// use futures::prelude::sink::SinkExt;
+// use futures::stream::Stream;
+// use iced::stream as iced_stream;
+
+use std::fs;
+use chrono::Local;
+use tracing_subscriber::{
+    fmt,
+    prelude::*,
+};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
 #[tokio::main]
 async fn main() -> iced::Result {
-    // env_logger::init();
-    let mut logger_builder = Builder::from_default_env();
-    
-    // Set external crates to INFO level
-    // builder.filter_module("rumqttc", LevelFilter::Info);
-
-    // filter messages from iracing_ha_monitor::sim_monitor
-    // logger_builder.filter_module("iracing_ha_monitor::sim_monitor", LevelFilter::Info);
-    
-    // Keep your application at DEBUG level
-    logger_builder.filter_module("iracing_ha_monitor", LevelFilter::Debug);
-
     // Create logs directory if it doesn't exist
     fs::create_dir_all("logs").expect("Failed to create logs directory");
 
@@ -41,20 +32,51 @@ async fn main() -> iced::Result {
     let timestamp = Local::now().format("%Y%m%d_%H%M%S");
     let log_file = format!("logs/iracing_ha_monitor_{}.log", timestamp);
 
-    // Open log file
-    let _file = fs::File::create(&log_file)
-        .expect("Failed to create log file");
-    
-    // Apply the configuration
-    // let target = Target::Pipe(Box::new(file));
-    let target = Target::Stdout;
-    logger_builder
-        .target(target)
+    // Create file appender
+    let file_appender = RollingFileAppender::new(
+        Rotation::DAILY,
+        "logs",
+        "iracing_ha_monitor.log",
+    );
+
+    // Create stdout layer
+    let stdout_layer = fmt::layer()
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_line_number(true)
+        .with_file(true);
+
+    // Create file layer
+    let file_layer = fmt::layer()
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_line_number(true)
+        .with_file(true)
+        .with_ansi(false)
+        .with_writer(file_appender);
+
+    // Combine layers and set as global default
+    tracing_subscriber::registry()
+        .with(
+            stdout_layer
+            // .with_filter(
+            //     tracing_subscriber::filter::EnvFilter::new("iracing_ha_monitor=debug")
+            // )
+        )
+        .with(
+            file_layer
+            // .with_filter(
+            //     tracing_subscriber::filter::EnvFilter::new("iracing_ha_monitor=debug")
+            // )
+        )
         .init();
+
+    tracing::info!("Starting iRacing HA Monitor");
+
 
     let config = config::get_app_config();
 
-        // Since winit doesn't use gtk on Linux, and we need gtk for
+    // Since winit doesn't use gtk on Linux, and we need gtk for
     // the tray icon to show up, we need to spawn a thread
     // where we initialize gtk and create the tray_icon
     #[cfg(target_os = "linux")]
