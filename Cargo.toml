@@ -25,6 +25,7 @@ thiserror = "2.0.11"
 tokio = { version = "1.43.0", features = ["full"] }
 toml = { version = "0.8.19", features = ["display"] }
 tray-icon = "0.19.2"
+winit = "0.30.9"
 yaml-rust = "0.4.5"
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -44,3 +45,7 @@ strip = true        # Strip symbols from binary*
 
 [lints.clippy]
 future_not_send = "deny"
+
+[[examples]]
+name = "basic_tray"
+path = "examples/basic_tray.rs"

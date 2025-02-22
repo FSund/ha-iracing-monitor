@@ -12,6 +12,7 @@ use log::LevelFilter;
 use frontend::IracingMonitorGui;
 use std::fs;
 use chrono::Local;
+use winit;
 
 use futures::prelude::stream::StreamExt;
 
@@ -49,7 +50,7 @@ async fn main() -> iced::Result {
 
     let config = config::get_app_config();
 
-        // Since winit doesn't use gtk on Linux, and we need gtk for
+    // Since winit doesn't use gtk on Linux, and we need gtk for
     // the tray icon to show up, we need to spawn a thread
     // where we initialize gtk and create the tray_icon
     #[cfg(target_os = "linux")]
@@ -79,74 +80,104 @@ async fn main() -> iced::Result {
             .run_with(IracingMonitorGui::new)
             .expect("Iced frontend failed");
     } else {
+        // Create an event loop to handle tray events
+        let event_loop = winit::event_loop::EventLoop::new().unwrap();
+
         // pin the streams to the stack
         let mut sim_events = Box::pin(sim_monitor::connect());
         let mut tray_events = Box::pin(tray::tray_subscription());
         let mut config_events = Box::pin(config::watch());
 
-        let mut sim_monitor_connection = None;
+        let mut sim_monitor_connection: Option<sim_monitor::Connection> = None;
+        let mut tray: Option<tray::Connection> = None;
 
-        loop {
-            tokio::select! {
-                Some(event) = sim_events.next() => {
-                    log::debug!("sim event: {:?}", event);
-                    match event {
-                        sim_monitor::Event::Ready(mut connection) => {
-                            // send the current config to the sim monitor
-                            connection.send(sim_monitor::Message::UpdateConfig(config.clone()));
-                            sim_monitor_connection = Some(connection);
-                        }
-                        sim_monitor::Event::ConnectedToSim(_state) => {
-                            log::debug!("Connected to sim");
-                        }
-                        sim_monitor::Event::DisconnectedFromSim(_state) => {
-                            log::debug!("Disconnected from sim");
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    Some(event) = sim_events.next() => {
+                        log::debug!("sim event: {:?}", event);
+                        match event {
+                            sim_monitor::Event::Ready(mut connection) => {
+                                // send the current config to the sim monitor
+                                connection.send(sim_monitor::Message::UpdateConfig(config.clone()));
+                                sim_monitor_connection = Some(connection);
+                            }
+                            sim_monitor::Event::ConnectedToSim(_state) => {
+                                log::debug!("Connected to sim");
+                            }
+                            sim_monitor::Event::DisconnectedFromSim(_state) => {
+                                log::debug!("Disconnected from sim");
+                            }
                         }
                     }
-                }
-                Some(event) = tray_events.next() => {
-                    log::debug!("tray event: {:?}", event);
-                    if let tray::TrayEventType::MenuItemClicked(menu_id) = event {
-                        log::debug!("menu_id: {:?}", menu_id);
-                        match menu_id.0.as_str() {
-                            "quit" => {
-                                log::debug!("Quitting");
-                                break;
-                            }
-                            "options" => {
-                                log::debug!("Opening config file");
-                                let config_file = config::get_config_path();
-                                match open::that(config_file) {
-                                    Ok(()) => log::debug!("Opened settings toml"),
-                                    Err(err) => log::warn!("Error opening settings toml: {}", err),
+                    Some(event) = tray_events.next() => {
+                        log::debug!("tray event: {:?}", event);
+
+                        match event {
+                            tray::TrayEventType::MenuItemClicked(menu_id) => {
+                                log::debug!("menu_id: {:?}", menu_id);
+                                match menu_id.0.as_str() {
+                                    "quit" => {
+                                        log::debug!("Quitting");
+                                        break;
+                                    }
+                                    "options" => {
+                                        log::debug!("Opening config file");
+                                        let config_file = config::get_config_path();
+                                        match open::that(config_file) {
+                                            Ok(()) => log::debug!("Opened settings toml"),
+                                            Err(err) => log::warn!("Error opening settings toml: {}", err),
+                                        }
+                                    }
+                                    _ => {
+                                        log::debug!("Unknown menu item clicked: {:?}", menu_id);
+                                    }
                                 }
                             }
-                            _ => {
-                                log::debug!("Unknown menu item clicked: {:?}", menu_id);
+                            tray::TrayEventType::Connected(connection) => {
+                                log::debug!("Connected to tray");
+                                tray = Some(connection);
                             }
                         }
                     }
-                }
-                Some(event) = config_events.next() => {
-                    log::debug!("config event: {:?}", event);
-                    match event {
-                        // config::Event::Created(app_config) => {
-                        //     log::debug!("Config created");
-                        // }
-                        config::Event::Created(app_config) | config::Event::Modified(app_config) => {
-                            log::debug!("Config created or modified");
-                            let config = app_config;
-                            if let Some(ref mut connection) = sim_monitor_connection {
-                                connection.send(sim_monitor::Message::UpdateConfig(config.clone()));
+                    Some(event) = config_events.next() => {
+                        log::debug!("config event: {:?}", event);
+                        match event {
+                            // config::Event::Created(app_config) => {
+                            //     log::debug!("Config created");
+                            // }
+                            config::Event::Created(app_config) | config::Event::Modified(app_config) => {
+                                log::debug!("Config created or modified");
+                                let config = app_config;
+                                if let Some(ref mut connection) = sim_monitor_connection {
+                                    connection.send(sim_monitor::Message::UpdateConfig(config.clone()));
+                                }
                             }
-                        }
-                        config::Event::Deleted(_path) => {
-                            log::debug!("Config deleted");
+                            config::Event::Deleted(_path) => {
+                                log::debug!("Config deleted");
+                            }
                         }
                     }
                 }
             }
-        }
+        });
+
+        // Run the event loop
+        event_loop.run_app(move |event, _, control_flow| {
+            control_flow.set_poll();
+
+            match event {
+                winit::event::Event::NewEvents(_) => {}
+                winit::event::Event::MainEventsCleared => {
+                    // This helps reduce CPU usage while keeping the event loop responsive
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                winit::event::Event::LoopDestroyed => {
+                    log::info!("Event loop destroyed");
+                }
+                _ => {}
+            }
+        })?;
     }
 
     Ok(())
