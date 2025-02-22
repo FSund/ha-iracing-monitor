@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod backend;
 mod iracing_client;
 mod frontend;
 mod sim_monitor;
@@ -89,98 +90,14 @@ async fn main() -> iced::Result {
         // - sim status and tray events should be sent to the frontend via messages from the backend
     } else {
         // run the connect() stream
-        let mut stream = Box::pin(connect(config));
-        while let Some(event) = stream.next().await {
-            log::debug!("event: {:?}", event);
-        }
+        let stream = Box::pin(backend::connect());
+        let handle = tokio::spawn(async move {
+            stream.for_each(|_event| async move {
+                // log::debug!("event: {:?}", event);
+            }).await;
+        });
+        handle.await.expect("Stream task failed");
     }
 
     Ok(())
-}
-
-#[derive(Debug, Clone)]
-pub enum Event {
-    Sim(sim_monitor::Event),
-    Tray(tray::TrayEventType),
-    ConfigFile(config::Event),
-}
-
-pub fn connect(config: AppConfig) -> impl Stream<Item = Event> {
-    iced_stream::channel(100, |mut output| async move {
-        // pin the streams to the stack
-        let mut sim_events = Box::pin(sim_monitor::connect());
-        let mut tray_events = Box::pin(tray::tray_subscription());
-        let mut config_events = Box::pin(config::watch());
-
-        let mut sim_monitor_connection = None;
-
-        loop {
-            tokio::select! {
-                Some(event) = sim_events.next() => {
-                    log::debug!("sim event: {:?}", event);
-                    match event.clone() {
-                        sim_monitor::Event::Ready(mut connection) => {
-                            // send the current config to the sim monitor
-                            connection.send(sim_monitor::Message::UpdateConfig(config.clone()));
-                            sim_monitor_connection = Some(connection);
-                        }
-                        sim_monitor::Event::ConnectedToSim(_state) => {
-                            log::debug!("Connected to sim");
-                        }
-                        sim_monitor::Event::DisconnectedFromSim(_state) => {
-                            log::debug!("Disconnected from sim");
-                        }
-                    }
-                    output.send(Event::Sim(event)).await.unwrap();
-                }
-                Some(event) = tray_events.next() => {
-                    log::debug!("tray event: {:?}", event);
-                    if let tray::TrayEventType::MenuItemClicked(menu_id) = event.clone() {
-                        log::debug!("menu_id: {:?}", menu_id);
-                        match menu_id.0.as_str() {
-                            "quit" => {
-                                log::debug!("Quitting");
-                                break;
-                            }
-                            "options" => {
-                                log::debug!("Opening config file");
-                                let config_file = config::get_config_path();
-                                match open::that(config_file) {
-                                    Ok(()) => log::debug!("Opened settings toml"),
-                                    Err(err) => log::warn!("Error opening settings toml: {}", err),
-                                }
-                            }
-                            _ => {
-                                log::debug!("Unknown menu item clicked: {:?}", menu_id);
-                            }
-                        }
-                    }
-                    output.send(Event::Tray(event)).await.unwrap();
-                }
-                Some(event) = config_events.next() => {
-                    log::debug!("config event: {:?}", event);
-                    match event.clone() {
-                        // config::Event::Created(app_config) => {
-                        //     log::debug!("Config created");
-                        // }
-                        config::Event::Created(app_config) | config::Event::Modified(app_config) => {
-                            log::debug!("Config created or modified");
-                            
-                            // store update config
-                            let config = app_config;
-
-                            // send the updated config to the sim monitor
-                            if let Some(ref mut connection) = sim_monitor_connection {
-                                connection.send(sim_monitor::Message::UpdateConfig(config.clone()));
-                            }
-                        }
-                        config::Event::Deleted(_path) => {
-                            log::debug!("Config deleted");
-                        }
-                    }
-                    output.send(Event::ConfigFile(event)).await.unwrap();
-                }
-            }
-        }
-    })
 }

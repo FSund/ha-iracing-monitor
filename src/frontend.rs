@@ -2,6 +2,7 @@ use crate::config;
 use crate::resources;
 use crate::sim_monitor;
 use crate::tray;
+use crate::backend;
 
 use iced::widget::checkbox;
 use iced::widget::container;
@@ -24,9 +25,10 @@ pub enum Message {
     MqttPasswordChanged(String),
     ApplyMqttConfig,
 
-    SimUpdated(sim_monitor::Event),
-    TrayEvent(tray::TrayEventType),
-    ConfigFileEvent(config::Event),
+    // SimUpdated(sim_monitor::Event),
+    // TrayEvent(tray::TrayEventType),
+    // ConfigFileEvent(config::Event),
+    BackendEvent(backend::Event),
 
     SettingsPressed,
     HomePressed,
@@ -168,65 +170,71 @@ impl IracingMonitorGui {
                 log::info!("Window closed");
                 self.window_id = None;
             }
-            Message::SimUpdated(event) => {
-                log::debug!("SimUpdated message received! ({event})");
-                // self.iracing_connection_status = format!("{event}");
-
+            Message::BackendEvent(event) => {
                 match event {
-                    sim_monitor::Event::Ready(connection) => {
-                        self.state = State::ConnectedToBackend(connection);
-                        log::info!("Backend ready, waiting for game");
-                    }
-                    sim_monitor::Event::DisconnectedFromSim(state) => {
-                        if self.connected_to_sim {
-                            log::info!("Disconnected from game");
-                            self.connected_to_sim = false;
-                        }
-                        self.sim_state = Some(state);
-                    }
-                    sim_monitor::Event::ConnectedToSim(state) => {
-                        if !self.connected_to_sim {
-                            log::info!("Connected to game");
-                            self.connected_to_sim = true;
-                        }
-                        self.sim_state = Some(state);
-                    }
-                }
-            }
-            Message::TrayEvent(event) => {
-                log::info!("Tray event: {event:?}");
-                match event {
-                    tray::TrayEventType::MenuItemClicked(id) => {
-                        // if id.0 == "quit" {
-                        //     Task::done(Message::Quit)
-                        // } else {
-                        //     Task::none()
-                        // }
-                        match id.0.as_str() {
-                            // TODO: matching on strings is bad and you should feel bad
-                            "quit" => return Task::done(Message::Quit),
-                            "options" => return self.open_window(),
-                            _ => {
-                                log::warn!("Unknown tray menu item clicked: {}", id.0);
-                                return Task::none();
+                    backend::Event::Sim(event) => {
+                        log::debug!("SimUpdated message received! ({event})");
+                        // self.iracing_connection_status = format!("{event}");
+        
+                        match event {
+                            sim_monitor::Event::Ready(connection) => {
+                                self.state = State::ConnectedToBackend(connection);
+                                log::info!("Backend ready, waiting for game");
+                            }
+                            sim_monitor::Event::DisconnectedFromSim(state) => {
+                                if self.connected_to_sim {
+                                    log::info!("Disconnected from game");
+                                    self.connected_to_sim = false;
+                                }
+                                self.sim_state = Some(state);
+                            }
+                            sim_monitor::Event::ConnectedToSim(state) => {
+                                if !self.connected_to_sim {
+                                    log::info!("Connected to game");
+                                    self.connected_to_sim = true;
+                                }
+                                self.sim_state = Some(state);
                             }
                         }
                     }
-                    tray::TrayEventType::Connected(connection) => {
-                        self.tray = Some(connection);
-                    } // tray::TrayEventType::IconClicked => {
-                      //     self.open_window()
-                      // }
+                    backend::Event::ConfigFile(event) => {
+                        match event {
+                            config::Event::Modified(config) | config::Event::Created(config) => {
+                                log::info!("Config file updated: {config:?}");
+                            }
+                            config::Event::Deleted(path) => {
+                                log::info!("Config file {path:?} deleted");
+                            }
+                        }
+                    }
+                    backend::Event::Tray(event) => {
+                        log::info!("Tray event: {event:?}");
+                        match event {
+                            tray::TrayEventType::MenuItemClicked(id) => {
+                                // if id.0 == "quit" {
+                                //     Task::done(Message::Quit)
+                                // } else {
+                                //     Task::none()
+                                // }
+                                match id.0.as_str() {
+                                    // TODO: matching on strings is bad and you should feel bad
+                                    "quit" => return Task::done(Message::Quit),
+                                    "options" => return self.open_window(),
+                                    _ => {
+                                        log::warn!("Unknown tray menu item clicked: {}", id.0);
+                                        return Task::none();
+                                    }
+                                }
+                            }
+                            tray::TrayEventType::Connected(connection) => {
+                                self.tray = Some(connection);
+                            } // tray::TrayEventType::IconClicked => {
+                            //     self.open_window()
+                            // }
+                        }
+                    }
                 }
             }
-            Message::ConfigFileEvent(event) => match event {
-                config::Event::Modified(config) | config::Event::Created(config) => {
-                    log::info!("Config file updated: {config:?}");
-                }
-                config::Event::Deleted(path) => {
-                    log::info!("Config file {path:?} deleted");
-                }
-            },
             Message::SettingsPressed => {
                 self.screen = Screen::Settings;
             }
@@ -504,9 +512,11 @@ impl IracingMonitorGui {
         Subscription::batch(vec![
             window::close_events().map(Message::WindowClosed),
             keyboard::on_key_press(handle_hotkey),
-            Subscription::run(sim_monitor::connect).map(Message::SimUpdated),
-            Subscription::run(tray::tray_subscription).map(Message::TrayEvent),
-            Subscription::run(config::watch).map(Message::ConfigFileEvent),
+            Subscription::run(backend::connect).map(Message::BackendEvent),
+            // Subscription::run(sim_monitor::connect).map(Message::SimUpdated),
+            // Subscription::run(tray::tray_subscription).map(Message::TrayEvent),
+            // Subscription::run(config::watch).map(Message::ConfigFileEvent),
+
         ])
     }
 }
