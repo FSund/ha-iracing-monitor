@@ -98,8 +98,8 @@ impl SimMonitor {
         self.mqtt_eventloop_handle = Some(tokio::spawn(async move {
             loop {
                 match mqtt_eventloop.poll().await {
-                    Ok(notification) => {
-                        log::debug!("MQTT event: {:?}", notification);
+                    Ok(_notification) => {
+                        // log::debug!("MQTT event: {:?}", notification);
                     }
                     Err(e) => {
                         // Just log the error but keep polling - the event loop will handle reconnection
@@ -141,12 +141,12 @@ impl SimMonitor {
                 );
                 
                 // Spawn MQTT publish in separate task
-                let mqtt = mqtt.clone();
+                let mqtt_clone = mqtt.clone();
                 let state_clone = state.clone();
                 tokio::spawn(async move {
                     match tokio::time::timeout(
                         Duration::from_secs(5), // 5 second timeout
-                        mqtt.publish(&topic, QoS::AtLeastOnce, false, payload)
+                        mqtt_clone.publish(&topic, QoS::AtLeastOnce, false, payload)
                     ).await {
                         Ok(result) => match result {
                             Ok(_) => {
@@ -164,6 +164,31 @@ impl SimMonitor {
                     }
                 });
                 self.last_state = Some(state_clone);
+
+                // Publish attributes
+                // let attributes_json = serde_json::json!({
+                //     // "icon_color": "#FF0000",
+                //     // "color": "red",
+                //     // "entity-color": "#FF0000",
+                //     "icon": "mdi:racing-helmet",
+                // });
+                // let attributes_topic = "homeassistant/sensor/iracing/attributes";
+                // let mqtt_clone = mqtt.clone();
+                // tokio::spawn(async move {
+                //     match mqtt_clone.publish(
+                //         attributes_topic,
+                //         QoS::AtLeastOnce,
+                //         false,
+                //         serde_json::to_string(&attributes_json).unwrap(),
+                //     ).await {
+                //         Ok(_) => {
+                //             log::debug!("Successfully published attributes via MQTT");
+                //         }
+                //         Err(e) => {
+                //             log::warn!("Failed to publish attributes via MQTT: {}", e);
+                //         }
+                //     }
+                // });
             } else {
                 log::debug!("Unable to publish state to MQTT, missing MQTT config");
             }
@@ -231,10 +256,20 @@ async fn register_device(mqtt: &mut AsyncClient) -> Result<()> {
         "value_template": "{{ value_json.current_session_type }}",
         "unique_id": "iracing_session_type",
         "expire_after": 30,
+        "icon": "mdi:racing-helmet",
+        "device_class": "enum",
+        "options": [
+            "Disconnected",
+            "Practice",
+            "Qualifying",
+            "Race",
+            "Lone Qualifying",
+        ],
         "device": {
             "identifiers": "my_unique_id",
             "name": "iRacing Simulator",
-        }
+        },
+        // "json_attributes_topic": "homeassistant/sensor/iracing/attributes",
     });
 
     mqtt.publish(
