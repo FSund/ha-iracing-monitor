@@ -32,6 +32,7 @@ use winit::{
 enum UserEvent {
     TrayIconEvent(tray_icon::TrayIconEvent),
     MenuEvent(tray_icon::menu::MenuEvent),
+    Shutdown,
 }
 
 struct Application {
@@ -87,8 +88,13 @@ impl ApplicationHandler<UserEvent> for Application {
         }
     }
 
-    fn user_event(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
-        println!("{event:?}");
+    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
+        match event {
+            UserEvent::Shutdown => {
+                event_loop.exit();
+            }
+            _ => println!("{event:?}"),
+        }
     }
 }
 
@@ -113,7 +119,8 @@ async fn main() -> anyhow::Result<()> {
         .with_target(true)
         .with_thread_ids(true)
         .with_line_number(true)
-        .with_file(true);
+        .with_file(true)
+        .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG);
 
     // Create file layer
     let file_layer = fmt::layer()
@@ -122,7 +129,8 @@ async fn main() -> anyhow::Result<()> {
         .with_line_number(true)
         .with_file(true)
         .with_ansi(false)
-        .with_writer(file_appender);
+        .with_writer(file_appender)
+        .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG);
 
     // Combine layers and set as global default
     tracing_subscriber::registry()
@@ -156,16 +164,19 @@ async fn main() -> anyhow::Result<()> {
         //   saved to the config file when the user changes something, and updated (via message from the backend) when the config file changes
         // - sim status and tray events should be sent to the frontend via messages from the backend
     } else {
+        let event_loop = EventLoop::<UserEvent>::with_user_event().build().unwrap();
+        let event_loop_proxy = event_loop.create_proxy();
+
         // run the connect() stream
-        let stream = Box::pin(backend::connect());
-        let _handle = tokio::spawn(async move {
+        let stream = Box::pin(backend::connect(Some(event_loop_proxy.clone())));
+        let _stream_handle = tokio::spawn(async move {
             stream.for_each(|_event| async move {
                 // log::debug!("event: {:?}", event);
             }).await;
         });
         // handle.await.expect("Stream task failed");
 
-        let event_loop = EventLoop::<UserEvent>::with_user_event().build().unwrap();
+        
 
         // set a tray event handler that forwards the event and wakes up the event loop
         // let proxy = event_loop.create_proxy();

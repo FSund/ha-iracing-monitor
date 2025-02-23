@@ -1,3 +1,4 @@
+use crate::config::AppConfig;
 use crate::iracing_client;
 use crate::config;
 
@@ -319,12 +320,13 @@ impl std::fmt::Display for Event {
     }
 }
 
-pub fn connect() -> impl Stream<Item = Event> {
-    let config = config::get_app_config();
+pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
     let mut monitor = SimMonitor::new();
 
     iced_stream::channel(100, |mut output| async move {
-        monitor.update_mqtt_config(config.mqtt).await;
+        if let Some(config) = config {
+            monitor.update_mqtt_config(config.mqtt).await;
+        }
         
         // Create channel
         let (sender, mut receiver) = mpsc::channel(100);

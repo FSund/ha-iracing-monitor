@@ -2,6 +2,7 @@ use crate::config;
 // use crate::frontend;
 use crate::sim_monitor;
 use crate::tray;
+use crate::UserEvent;
 
 use config::AppConfig;
 // use env_logger::{Builder, Target};
@@ -14,6 +15,7 @@ use futures::prelude::stream::StreamExt;
 use futures::prelude::sink::SinkExt;
 use futures::stream::Stream;
 use iced::stream as iced_stream;
+use winit::event_loop::EventLoopProxy;
 
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -22,11 +24,11 @@ pub enum Event {
     ConfigFile(config::Event),
 }
 
-pub fn connect() -> impl Stream<Item = Event> {
-    let config = config::get_app_config();
+pub fn connect(event_loop_proxy: Option<EventLoopProxy<UserEvent>>) -> impl Stream<Item = Event> {
+    let config = Some(config::get_app_config());
     iced_stream::channel(100, |mut output| async move {
         // pin the streams to the stack
-        let mut sim_events = Box::pin(sim_monitor::connect());
+        let mut sim_events = Box::pin(sim_monitor::connect(config.clone()));
         let mut tray_events = Box::pin(tray::tray_subscription());
         let mut config_events = Box::pin(config::watch());
 
@@ -37,9 +39,9 @@ pub fn connect() -> impl Stream<Item = Event> {
                 Some(event) = sim_events.next() => {
                     log::debug!("sim event: {:?}", event);
                     match event.clone() {
-                        sim_monitor::Event::Ready(mut connection) => {
-                            // send the current config to the sim monitor
-                            connection.send(sim_monitor::Message::UpdateConfig(config.clone()));
+                        sim_monitor::Event::Ready(connection) => {
+                            // // send the current config to the sim monitor
+                            // connection.send(sim_monitor::Message::UpdateConfig(config.clone()));
                             sim_monitor_connection = Some(connection);
                         }
                         sim_monitor::Event::ConnectedToSim(_state) => {
@@ -58,6 +60,11 @@ pub fn connect() -> impl Stream<Item = Event> {
                         match menu_id.0.as_str() {
                             "quit" => {
                                 log::debug!("Quitting");
+                                if let Some(event_loop_proxy) = event_loop_proxy {
+                                    if let Err(e) = event_loop_proxy.send_event(UserEvent::Shutdown) {
+                                        log::error!("Failed to send shutdown event: {}", e);
+                                    }
+                                }
                                 break;
                             }
                             "options" => {
