@@ -64,10 +64,10 @@ pub struct SimMonitor {
 
 impl SimMonitor {
     pub fn new() -> Self {
-        SimMonitor::new_with_config(None)
+        SimMonitor::new_with_mqtt_client(None)
     }
 
-    pub fn new_with_config(mqtt_client: Option<AsyncClient>) -> Self {
+    pub fn new_with_mqtt_client(mqtt_client: Option<AsyncClient>) -> Self {
         Self {
             iracing: iracing_client::Client::new(),
             mqtt: mqtt_client,
@@ -320,9 +320,12 @@ impl std::fmt::Display for Event {
 }
 
 pub fn connect() -> impl Stream<Item = Event> {
+    let config = config::get_app_config();
     let mut monitor = SimMonitor::new();
 
     iced_stream::channel(100, |mut output| async move {
+        monitor.update_mqtt_config(config.mqtt).await;
+        
         // Create channel
         let (sender, mut receiver) = mpsc::channel(100);
 

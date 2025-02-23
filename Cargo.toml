@@ -28,22 +28,16 @@ tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt", "std"] }
 tray-icon = "0.19.2"
+winit = "0.30.9"
 yaml-rust = "0.4.5"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 simetry = { version = "0.2.3", default-features = false }
 #windows = "0.59.0"
+windows = { version = "0.60.0", features = ["Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18.2"
-
-[profile.release]
-#opt-level = 'z'     # Optimize for size
-lto = true          # Enable link-time optimization
-codegen-units = 1   # Reduce number of codegen units to increase optimizations
-panic = 'abort'     # Abort on panic
-strip = true        # Strip symbols from binary*
-# * strip = true requires Rust 1.59+. On older Rust versions, run strip manually on the resulting binary.
 
 [lints.clippy]
 future_not_send = "deny"
