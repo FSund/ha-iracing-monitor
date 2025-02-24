@@ -11,10 +11,11 @@ mod config;
 use frontend::IracingMonitorGui;
 use futures::prelude::stream::StreamExt;
 use std::fs;
-use chrono::Local;
 use tracing_subscriber::{
     fmt,
-    prelude::*, EnvFilter,
+    prelude::*,
+    Registry,
+    filter::Targets,
 };
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
@@ -103,35 +104,26 @@ async fn main() -> anyhow::Result<()> {
     // Create logs directory if it doesn't exist
     fs::create_dir_all("logs").expect("Failed to create logs directory");
 
-    // Generate timestamp for log file
-    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
-    let log_file = format!("logs/iracing_ha_monitor_{}.log", timestamp);
+    let filter = Targets::new()
+        .with_default(tracing::Level::WARN)
+        .with_target("iracing_ha_monitor", tracing::Level::DEBUG);
 
-    // Create file appender
+    // Create rolling file appender
     let file_appender = RollingFileAppender::new(
         Rotation::DAILY,
         "logs",
         "iracing_ha_monitor.log",
     );
 
-    // Create a custom filter that only enables your application's logs
-    let make_filter = || {
-        EnvFilter::new("warn,iracing_ha_monitor=debug")
-            // .add_directive("tokio=warn".parse().unwrap())
-            // .add_directive("wgpu_core=warn".parse().unwrap())
-            // .add_directive("naga=warn".parse().unwrap())
-            // .add_directive("iced_winit=warn".parse().unwrap())
-    };
-
-    // Create stdout layer
+    // Configure stdout layer
     let stdout_layer = fmt::layer()
         .with_target(true)
         .with_thread_ids(true)
         .with_line_number(true)
         .with_file(true)
-        .with_filter(make_filter());
+        .with_filter(filter.clone());
 
-    // Create file layer
+    // Configure file layer
     let file_layer = fmt::layer()
         .with_target(true)
         .with_thread_ids(true)
@@ -139,22 +131,12 @@ async fn main() -> anyhow::Result<()> {
         .with_file(true)
         .with_ansi(false)
         .with_writer(file_appender)
-        .with_filter(make_filter());
+        .with_filter(filter);
 
-    // Combine layers and set as global default
-    tracing_subscriber::registry()
-        .with(
-            stdout_layer
-            // .with_filter(
-            //     tracing_subscriber::filter::EnvFilter::new("iracing_ha_monitor=debug")
-            // )
-        )
-        .with(
-            file_layer
-            // .with_filter(
-            //     tracing_subscriber::filter::EnvFilter::new("iracing_ha_monitor=debug")
-            // )
-        )
+    // Combine both layers
+    Registry::default()
+        .with(stdout_layer)
+        .with(file_layer)
         .init();
 
     tracing::info!("Starting iRacing HA Monitor");
