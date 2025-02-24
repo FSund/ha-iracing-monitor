@@ -14,7 +14,7 @@ use std::fs;
 use chrono::Local;
 use tracing_subscriber::{
     fmt,
-    prelude::*,
+    prelude::*, EnvFilter,
 };
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
@@ -114,13 +114,22 @@ async fn main() -> anyhow::Result<()> {
         "iracing_ha_monitor.log",
     );
 
+    // Create a custom filter that only enables your application's logs
+    let make_filter = || {
+        EnvFilter::new("warn,iracing_ha_monitor=debug")
+            // .add_directive("tokio=warn".parse().unwrap())
+            // .add_directive("wgpu_core=warn".parse().unwrap())
+            // .add_directive("naga=warn".parse().unwrap())
+            // .add_directive("iced_winit=warn".parse().unwrap())
+    };
+
     // Create stdout layer
     let stdout_layer = fmt::layer()
         .with_target(true)
         .with_thread_ids(true)
         .with_line_number(true)
         .with_file(true)
-        .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG);
+        .with_filter(make_filter());
 
     // Create file layer
     let file_layer = fmt::layer()
@@ -130,7 +139,7 @@ async fn main() -> anyhow::Result<()> {
         .with_file(true)
         .with_ansi(false)
         .with_writer(file_appender)
-        .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG);
+        .with_filter(make_filter());
 
     // Combine layers and set as global default
     tracing_subscriber::registry()
