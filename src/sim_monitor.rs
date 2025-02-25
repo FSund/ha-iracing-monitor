@@ -234,13 +234,9 @@ impl Drop for SimMonitor {
         if let Some(handle) = self.mqtt_eventloop_handle.take() {
             handle.abort();
         }
-        // Disconnect MQTT client if it exists
-        if let Some(mqtt) = self.mqtt.as_mut() {
-            // Use blocking disconnect since we're in drop
-            if let Err(e) = futures::executor::block_on(mqtt.disconnect()) {
-                log::warn!("Error disconnecting MQTT client during cleanup: {}", e);
-            }
-        }
+        // For MQTT client, just force close without trying to do a clean disconnect
+        self.mqtt = None;
+        log::info!("SimMonitor cleanup completed");
     }
 }
 

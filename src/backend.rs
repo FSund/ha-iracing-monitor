@@ -24,7 +24,7 @@ pub enum Event {
     ConfigFile(config::Event),
 }
 
-pub fn connect(event_loop_proxy: Option<EventLoopProxy<UserEvent>>) -> impl Stream<Item = Event> {
+pub fn connect(winit_event_loop_proxy: Option<EventLoopProxy<UserEvent>>) -> impl Stream<Item = Event> {
     let config = Some(config::get_app_config());
     iced_stream::channel(100, |mut output| async move {
         // pin the streams to the stack
@@ -60,9 +60,9 @@ pub fn connect(event_loop_proxy: Option<EventLoopProxy<UserEvent>>) -> impl Stre
                         match menu_id.0.as_str() {
                             "quit" => {
                                 log::debug!("Quitting");
-                                if let Some(event_loop_proxy) = event_loop_proxy {
+                                if let Some(event_loop_proxy) = winit_event_loop_proxy {
                                     if let Err(e) = event_loop_proxy.send_event(UserEvent::Shutdown) {
-                                        log::error!("Failed to send shutdown event: {}", e);
+                                        panic!("Failed to send shutdown event to winit: {}", e);
                                     }
                                 }
                                 break;

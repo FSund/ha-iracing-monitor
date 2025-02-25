@@ -155,13 +155,13 @@ async fn main() -> anyhow::Result<()> {
         gtk::main();
     });
 
-    // Tray icon on Windows
-    #[cfg(not(target_os = "linux"))]
-    let _tray_icon = Application::new_tray_icon();
-
     tracing::info!("Starting iRacing HA Monitor");
     let config = config::get_app_config();
     if config.gui {
+        // Tray icon on Windows
+        #[cfg(not(target_os = "linux"))]
+        let _tray_icon = Application::new_tray_icon();
+
         // using a daemon is overkill for a plain iced application, but might come in
         // handy when trying to implement a tray icon
         iced::daemon(IracingMonitorGui::title, IracingMonitorGui::update, IracingMonitorGui::view)
