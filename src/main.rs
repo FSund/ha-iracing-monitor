@@ -104,7 +104,11 @@ async fn main() -> anyhow::Result<()> {
     // Create logs directory if it doesn't exist
     fs::create_dir_all("logs").expect("Failed to create logs directory");
 
-    let filter = Targets::new()
+    let stdout_filter = Targets::new()
+        .with_default(tracing::Level::ERROR)
+        .with_target("iracing_ha_monitor", tracing::Level::DEBUG);
+
+    let file_appender_filter = Targets::new()
         .with_default(tracing::Level::WARN)
         .with_target("iracing_ha_monitor", tracing::Level::DEBUG);
 
@@ -121,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
         .with_thread_ids(true)
         .with_line_number(true)
         .with_file(true)
-        .with_filter(filter.clone());
+        .with_filter(stdout_filter);
 
     // Configure file layer
     let file_layer = fmt::layer()
@@ -131,13 +135,29 @@ async fn main() -> anyhow::Result<()> {
         .with_file(true)
         .with_ansi(false)
         .with_writer(file_appender)
-        .with_filter(filter);
+        .with_filter(file_appender_filter);
 
     // Combine both layers
     Registry::default()
         .with(stdout_layer)
         .with(file_layer)
         .init();
+
+    // Since winit doesn't use gtk on Linux, and we need gtk for
+    // the tray icon to show up, we need to spawn a thread
+    // where we initialize gtk and create the tray_icon
+    #[cfg(target_os = "linux")]
+    std::thread::spawn(|| {
+        gtk::init().unwrap();
+
+        let _tray_icon = Application::new_tray_icon();
+
+        gtk::main();
+    });
+
+    // Tray icon on Windows
+    #[cfg(not(target_os = "linux"))]
+    let _tray_icon = Application::new_tray_icon();
 
     tracing::info!("Starting iRacing HA Monitor");
     let config = config::get_app_config();
@@ -184,18 +204,6 @@ async fn main() -> anyhow::Result<()> {
         // let menu_channel = MenuEvent::receiver();
         // let tray_channel = TrayIconEvent::receiver();
     
-        // Since winit doesn't use gtk on Linux, and we need gtk for
-        // the tray icon to show up, we need to spawn a thread
-        // where we initialize gtk and create the tray_icon
-        #[cfg(target_os = "linux")]
-        std::thread::spawn(|| {
-            gtk::init().unwrap();
-    
-            let _tray_icon = Application::new_tray_icon();
-    
-            gtk::main();
-        });
-    
         if let Err(err) = event_loop.run_app(&mut app) {
             println!("Error: {:?}", err);
         }
@@ -203,3 +211,4 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
+

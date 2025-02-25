@@ -1,6 +1,7 @@
 # iRacing Home Assistant Monitor
 
 ## TODO
+- [x] Figure out where the tray icon went for GUI mode (Windows and Linux)
 - [x] Fix sim_monitor stops responding/stream dies if an invalid mqtt config is provided
 - [x] Separate backend and frontend
 - [x] Fix config update when config file is changed (does not seem to work at the moment, default config is always returned)
