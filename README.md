@@ -1,6 +1,10 @@
 # iRacing Home Assistant Monitor
 
 ## TODO
+- [ ] Use proper location for config file (%APPDATA% on Windows, XDG_CONFIG_... on Linux)
+- [x] Fix double tray icons
+- [ ] Quitting from tray with GUI does not work (Windows)
+- [ ] Quitting from GUI does throws errors (Windows)
 - [x] Figure out where the tray icon went for GUI mode (Windows and Linux)
 - [x] Fix sim_monitor stops responding/stream dies if an invalid mqtt config is provided
 - [x] Separate backend and frontend
