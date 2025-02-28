@@ -65,10 +65,9 @@ fn get_toml_path() -> PathBuf {
 
     // Otherwise, use ProjectDirs
     let proj_dirs = get_project_dir();
-    
+
     // Create config directory if it doesn't exist
-    fs::create_dir_all(proj_dirs.config_dir())
-        .expect("Failed to create config directory");
+    fs::create_dir_all(proj_dirs.config_dir()).expect("Failed to create config directory");
 
     log::info!("Using user config directory: {:?}", proj_dirs.config_dir());
     proj_dirs.config_dir().join("config.toml")
@@ -114,7 +113,10 @@ pub fn get_app_config() -> AppConfig {
     match get_app_config_with_error() {
         Ok(app_config) => app_config,
         Err(e) => {
-            log::warn!("Failed to get app config: {:?}, returning default config", e);
+            log::warn!(
+                "Failed to get app config: {:?}, returning default config",
+                e
+            );
             AppConfig::default()
         }
     }
@@ -125,9 +127,7 @@ fn get_app_config_with_error() -> Result<AppConfig, ConfigError> {
         // refresh if config has been initialized
         refresh()?;
     }
-    let config = config()
-        .read()
-        .map_err(|_| ConfigError::LockError)?;
+    let config = config().read().map_err(|_| ConfigError::LockError)?;
 
     log::debug!("Config: {:?}", config);
 

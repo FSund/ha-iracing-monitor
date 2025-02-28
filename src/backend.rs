@@ -1,18 +1,12 @@
 use crate::config;
-// use crate::frontend;
 use crate::sim_monitor;
 use crate::tray;
 use crate::UserEvent;
 
 use config::AppConfig;
-// use env_logger::{Builder, Target};
-// use log::LevelFilter;
-// use frontend::IracingMonitorGui;
-// use std::fs;
-// use chrono::Local;
 
-use futures::prelude::stream::StreamExt;
 use futures::prelude::sink::SinkExt;
+use futures::prelude::stream::StreamExt;
 use futures::stream::Stream;
 use iced::stream as iced_stream;
 use winit::event_loop::EventLoopProxy;
@@ -24,7 +18,9 @@ pub enum Event {
     ConfigFile(config::Event),
 }
 
-pub fn connect(winit_event_loop_proxy: Option<EventLoopProxy<UserEvent>>) -> impl Stream<Item = Event> {
+pub fn connect(
+    winit_event_loop_proxy: Option<EventLoopProxy<UserEvent>>,
+) -> impl Stream<Item = Event> {
     let config = Some(config::get_app_config());
     iced_stream::channel(100, |mut output| async move {
         // pin the streams to the stack
@@ -90,7 +86,7 @@ pub fn connect(winit_event_loop_proxy: Option<EventLoopProxy<UserEvent>>) -> imp
                         // }
                         config::Event::Created(app_config) | config::Event::Modified(app_config) => {
                             log::debug!("Config created or modified");
-                            
+
                             // store update config
                             let config = app_config;
 

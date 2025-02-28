@@ -1,8 +1,8 @@
+use crate::backend;
 use crate::config;
 use crate::resources;
 use crate::sim_monitor;
 use crate::tray;
-use crate::backend;
 
 use iced::widget::checkbox;
 use iced::widget::container;
@@ -100,9 +100,7 @@ impl IracingMonitorGui {
                 window_id: Some(id),
                 screen: Screen::Home,
             },
-            Task::batch([
-                open.map(Message::WindowOpened),
-            ])
+            Task::batch([open.map(Message::WindowOpened)]),
         )
     }
 
@@ -175,7 +173,7 @@ impl IracingMonitorGui {
                     backend::Event::Sim(event) => {
                         log::debug!("SimUpdated message received! ({event})");
                         // self.iracing_connection_status = format!("{event}");
-        
+
                         match event {
                             sim_monitor::Event::Ready(connection) => {
                                 self.state = State::ConnectedToBackend(connection);
@@ -197,16 +195,14 @@ impl IracingMonitorGui {
                             }
                         }
                     }
-                    backend::Event::ConfigFile(event) => {
-                        match event {
-                            config::Event::Modified(config) | config::Event::Created(config) => {
-                                log::info!("Config file updated: {config:?}");
-                            }
-                            config::Event::Deleted(path) => {
-                                log::info!("Config file {path:?} deleted");
-                            }
+                    backend::Event::ConfigFile(event) => match event {
+                        config::Event::Modified(config) | config::Event::Created(config) => {
+                            log::info!("Config file updated: {config:?}");
                         }
-                    }
+                        config::Event::Deleted(path) => {
+                            log::info!("Config file {path:?} deleted");
+                        }
+                    },
                     backend::Event::Tray(event) => {
                         log::info!("Tray event: {event:?}");
                         match event {
@@ -229,8 +225,8 @@ impl IracingMonitorGui {
                             tray::TrayEventType::Connected(connection) => {
                                 self.tray = Some(connection);
                             } // tray::TrayEventType::IconClicked => {
-                            //     self.open_window()
-                            // }
+                              //     self.open_window()
+                              // }
                         }
                     }
                 }
@@ -516,7 +512,6 @@ impl IracingMonitorGui {
             // Subscription::run(sim_monitor::connect).map(Message::SimUpdated),
             // Subscription::run(tray::tray_subscription).map(Message::TrayEvent),
             // Subscription::run(config::watch).map(Message::ConfigFileEvent),
-
         ])
     }
 }

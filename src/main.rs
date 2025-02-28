@@ -3,32 +3,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backend;
-mod iracing_client;
+mod config;
 mod frontend;
+mod helpers;
+mod iracing_client;
+mod logging;
+mod resources;
 mod sim_monitor;
 mod tray;
-mod resources;
-mod config;
-mod helpers;
-mod logging;
 
 use anyhow::{Context, Result};
 use frontend::IracingMonitorGui;
 use futures::prelude::stream::StreamExt;
-use std::fs;
-use tracing_subscriber::{
-    fmt,
-    prelude::*,
-    Registry,
-    filter::Targets,
-};
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use logging::setup_logging;
+use std::fs;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::{filter::Targets, fmt, prelude::*, Registry};
 use tray_icon::TrayIcon;
-use winit::{
-    application::ApplicationHandler,
-    event_loop::EventLoop,
-};
+use winit::{application::ApplicationHandler, event_loop::EventLoop};
 
 #[derive(Debug)]
 enum UserEvent {
@@ -125,11 +117,15 @@ async fn main() -> anyhow::Result<()> {
 
         // using a daemon is overkill for a plain iced application, but might come in
         // handy when trying to implement a tray icon
-        iced::daemon(IracingMonitorGui::title, IracingMonitorGui::update, IracingMonitorGui::view)
-            .subscription(IracingMonitorGui::subscription)
-            .theme(IracingMonitorGui::theme)
-            .run_with(IracingMonitorGui::new)
-            .expect("Iced frontend failed");
+        iced::daemon(
+            IracingMonitorGui::title,
+            IracingMonitorGui::update,
+            IracingMonitorGui::view,
+        )
+        .subscription(IracingMonitorGui::subscription)
+        .theme(IracingMonitorGui::theme)
+        .run_with(IracingMonitorGui::new)
+        .expect("Iced frontend failed");
 
         // Notes for myself
         // - the frontend should not worry about the config file or config events, it should only keep an internal state that gets

@@ -1,6 +1,6 @@
+use directories::ProjectDirs;
 use std::fs;
 use std::path::PathBuf;
-use directories::ProjectDirs;
 
 pub fn get_project_dir() -> ProjectDirs {
     ProjectDirs::from("com", "FSund", "iracing-ha-monitor")
@@ -21,10 +21,9 @@ pub fn get_data_dir() -> PathBuf {
 
     // Otherwise, use ProjectDirs
     let proj_dirs = get_project_dir();
-    
+
     // Create config directory if it doesn't exist
-    fs::create_dir_all(proj_dirs.data_dir())
-        .expect("Failed to create data directory");
+    fs::create_dir_all(proj_dirs.data_dir()).expect("Failed to create data directory");
 
     log::info!("Using user data directory: {:?}", proj_dirs.data_dir());
     proj_dirs.data_dir().to_path_buf()

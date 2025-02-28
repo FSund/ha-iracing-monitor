@@ -1,6 +1,6 @@
+use crate::config;
 use crate::config::AppConfig;
 use crate::iracing_client;
-use crate::config;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -12,10 +12,10 @@ use iced::stream as iced_stream;
 use iracing_client::SimClient;
 use rumqttc::{AsyncClient, MqttOptions, QoS};
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 use std::time::Duration;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Serialize, Clone, PartialEq, EnumIter)]
 pub enum SessionType {
@@ -165,15 +165,17 @@ impl SimMonitor {
                     &self.mqtt_topic,
                     &payload
                 );
-                
+
                 // Spawn MQTT publish in separate task
                 let mqtt_clone = mqtt.clone();
                 let state_clone = state.clone();
                 tokio::spawn(async move {
                     match tokio::time::timeout(
                         Duration::from_secs(5), // 5 second timeout
-                        mqtt_clone.publish(&topic, QoS::AtLeastOnce, false, payload)
-                    ).await {
+                        mqtt_clone.publish(&topic, QoS::AtLeastOnce, false, payload),
+                    )
+                    .await
+                    {
                         Ok(result) => match result {
                             Ok(_) => {
                                 // this isn't really true, it just means the connection
@@ -226,7 +228,7 @@ impl SimMonitor {
         match self.iracing.get_current_session_type().await {
             Some(session_type) => {
                 log::debug!("Found session_type: {}", session_type);
-                
+
                 // Convert the string to SessionType
                 let session_type_enum = match session_type.as_str() {
                     "Practice" => SessionType::Practice,
@@ -238,7 +240,7 @@ impl SimMonitor {
                         SessionType::Disconnected
                     }
                 };
-    
+
                 SimMonitorState {
                     connected: true,
                     current_session_type: session_type_enum,
@@ -282,11 +284,9 @@ async fn register_device(mqtt: &mut AsyncClient) -> Result<()> {
     // Best practice for entities with a unique_id is to set <object_id> to unique_id and omit the <node_id>.
 
     let configuration_topic = "homeassistant/sensor/iracing/config";
-    
+
     // Get all session types as strings
-    let options: Vec<String> = SessionType::iter()
-        .map(|st| st.to_string())
-        .collect();
+    let options: Vec<String> = SessionType::iter().map(|st| st.to_string()).collect();
 
     let config = serde_json::json!({
         "name": "Session type",
@@ -357,7 +357,7 @@ pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
         if let Some(config) = config {
             monitor.update_mqtt_config(config.mqtt).await;
         }
-        
+
         // Create channel
         let (sender, mut receiver) = mpsc::channel(100);
 
