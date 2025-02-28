@@ -32,14 +32,14 @@ enum UserEvent {
 
 struct Application {
     tray_icon: Option<TrayIcon>,
-    session_type: sim_monitor::SessionType,
+    session_type: Option<sim_monitor::SessionType>,
 }
 
 impl Application {
-    fn new() -> Application {
-        Application {
+    fn new() -> Self {
+        Self {
             tray_icon: None,
-            session_type: sim_monitor::SessionType::Disconnected,
+            session_type: None,
         }
     }
 
@@ -67,6 +67,14 @@ impl Application {
         if let Some(tray) = self.tray_icon.as_mut() {
             let new_menu = tray::make_menu(Some(session_type.to_string()));
             tray.set_menu(Some(Box::new(new_menu)));
+        }
+    }
+
+    fn update_session_state(&mut self, new_state: sim_monitor::SessionType) {
+        let old_state = self.session_type.replace(new_state.clone());
+        if old_state.as_ref() != Some(&new_state) {
+            self.update_tray_icon(&new_state);
+            self.update_menu(&new_state);
         }
     }
 }
@@ -111,6 +119,7 @@ impl ApplicationHandler<UserEvent> for Application {
     }
 
     fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
+        log::debug!("Received user event: {event:?}");
         match event {
             UserEvent::Shutdown => {
                 event_loop.exit();
@@ -118,17 +127,8 @@ impl ApplicationHandler<UserEvent> for Application {
             UserEvent::SimMonitorEvent(
                 sim_monitor::Event::ConnectedToSim(state)
                 | sim_monitor::Event::DisconnectedFromSim(state),
-            ) => {
-                // Store the new session type in a temporary variable
-                let new_session_type = state.current_session_type;
-                // Compare with current session type
-                if new_session_type != self.session_type {
-                    self.session_type = new_session_type.clone();
-                    self.update_tray_icon(&new_session_type);
-                    self.update_menu(&new_session_type);
-                }
-            }
-            _ => log::debug!("{event:?}"),
+            ) => self.update_session_state(state.current_session_type),
+            _ => {}
         }
     }
 }

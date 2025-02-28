@@ -182,7 +182,7 @@ impl SimMonitor {
                             Ok(_) => {
                                 // this isn't really true, it just means the connection
                                 // hasn't timed out yet
-                                log::debug!("Successfully published state via MQTT");
+                                log::debug!("Payload delivered to MQTT event loop");
                             }
                             Err(e) => {
                                 log::warn!("Failed to publish state via MQTT: {}", e);
