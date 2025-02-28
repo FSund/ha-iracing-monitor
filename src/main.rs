@@ -177,11 +177,7 @@ async fn main() -> anyhow::Result<()> {
 
         // run the connect() stream
         let stream = Box::pin(backend::connect(Some(event_loop_proxy.clone())));
-        let _stream_handle = tokio::spawn(async move {
-            stream.for_each(|_event| async move {
-                // log::debug!("event: {:?}", event);
-            }).await;
-        });
+        let _stream_handle = tokio::spawn(stream.for_each(|_| futures::future::ready(())));
 
         // run the application (only contains the tray icon)
         let mut app = Application::new();
