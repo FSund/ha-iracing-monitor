@@ -23,6 +23,12 @@ jobs:
           toolchain: stable
           override: true
           components: rustfmt
+
+      # Add cache for formatting job
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "format-cache"
+
       - name: Check formatting
         uses: actions-rs/cargo@v1
         with:
@@ -45,6 +51,16 @@ jobs:
       - name: Set up Rust
         run: |
           rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+
+      # Add cache for build job
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "build-${{ matrix.target }}"
+          cache-directories: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git
+            target/
 
       - name: Install dependencies
         run: |
