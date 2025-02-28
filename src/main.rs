@@ -1,3 +1,5 @@
+// Use windows_subsystem for release builds to hide console
+// This also disables stdout logging
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backend;
@@ -8,7 +10,9 @@ mod tray;
 mod resources;
 mod config;
 mod helpers;
+mod logging;
 
+use anyhow::{Context, Result};
 use frontend::IracingMonitorGui;
 use futures::prelude::stream::StreamExt;
 use std::fs;
@@ -19,7 +23,7 @@ use tracing_subscriber::{
     filter::Targets,
 };
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-
+use logging::setup_logging;
 use tray_icon::TrayIcon;
 use winit::{
     application::ApplicationHandler,
@@ -98,47 +102,7 @@ impl ApplicationHandler<UserEvent> for Application {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Create logs directory if it doesn't exist
-    fs::create_dir_all("logs").expect("Failed to create logs directory");
-
-    let stdout_filter = Targets::new()
-        .with_default(tracing::Level::ERROR)
-        .with_target("iracing_ha_monitor", tracing::Level::DEBUG);
-
-    let file_appender_filter = Targets::new()
-        .with_default(tracing::Level::WARN)
-        .with_target("iracing_ha_monitor", tracing::Level::DEBUG);
-
-    // Create rolling file appender
-    let file_appender = RollingFileAppender::new(
-        Rotation::DAILY,
-        "logs",
-        "iracing_ha_monitor.log",
-    );
-
-    // Configure stdout layer
-    let stdout_layer = fmt::layer()
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_line_number(true)
-        .with_file(true)
-        .with_filter(stdout_filter);
-
-    // Configure file layer
-    let file_layer = fmt::layer()
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_line_number(true)
-        .with_file(true)
-        .with_ansi(false)
-        .with_writer(file_appender)
-        .with_filter(file_appender_filter);
-
-    // Combine both layers
-    Registry::default()
-        .with(stdout_layer)
-        .with(file_layer)
-        .init();
+    setup_logging().context("Failed to setup logging")?;
 
     // Since winit doesn't use gtk on Linux, and we need gtk for
     // the tray icon to show up, we need to spawn a thread

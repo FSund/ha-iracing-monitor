@@ -120,7 +120,7 @@ impl SimMonitor {
         self.mqtt = Some(mqtt_client);
 
         // Spawn and store the event loop handle
-        log::info!("Starting MQTT event loop");
+        log::debug!("Starting MQTT event loop");
         self.mqtt_eventloop_handle = Some(tokio::spawn(async move {
             loop {
                 match mqtt_eventloop.poll().await {
@@ -143,7 +143,7 @@ impl SimMonitor {
             }
         }));
 
-        log::info!("MQTT client set up.");
+        log::debug!("MQTT client set up.");
 
         // Register the device
         if let Some(mqtt) = self.mqtt.as_mut() {
@@ -401,8 +401,10 @@ pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
 
                     // Publish state event
                     let event = if state.connected {
+                        log::info!("Connected to sim");
                         Event::ConnectedToSim(state)
                     } else {
+                        log::info!("Disconnected from sim");
                         Event::DisconnectedFromSim(state)
                     };
                     if let Err(e) = output.send(event).await {

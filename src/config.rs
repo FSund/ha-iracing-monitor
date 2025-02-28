@@ -6,7 +6,6 @@ use std::sync::RwLock;
 use anyhow::Error;
 use anyhow::{Context, Result};
 use config::{Config, File};
-use directories::ProjectDirs;
 use futures::channel::mpsc;
 use futures::prelude::stream::StreamExt;
 use futures::stream::Stream;
@@ -15,7 +14,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::sim_monitor::MqttConfig;
-use crate::helpers::get_config_dir;
 
 #[derive(Debug)]
 enum ConfigError {
@@ -44,11 +42,42 @@ impl AppConfig {
     }
 }
 
+#[cfg(debug_assertions)]
+fn get_toml_path() -> PathBuf {
+    // Use current directory for config in debug mode
+    std::env::current_dir().unwrap().join("config.toml")
+}
+
+#[cfg(not(debug_assertions))]
+fn get_toml_path() -> PathBuf {
+    use crate::helpers::get_project_dir;
+
+    // First try executable directory
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe_path| exe_path.parent().map(|p| p.to_path_buf()));
+
+    // If toml file exists in exe dir, use it
+    if let Some(path) = exe_dir.filter(|p| p.join("config.toml").exists()) {
+        log::debug!("Using executable directory for config: {:?}", path);
+        return path.join("config.toml");
+    }
+
+    // Otherwise, use ProjectDirs
+    let proj_dirs = get_project_dir();
+    
+    // Create config directory if it doesn't exist
+    fs::create_dir_all(proj_dirs.config_dir())
+        .expect("Failed to create config directory");
+
+    log::info!("Using user config directory: {:?}", proj_dirs.config_dir());
+    proj_dirs.config_dir().join("config.toml")
+}
+
 fn config_path() -> &'static RwLock<PathBuf> {
     static CONFIG_PATH: OnceLock<RwLock<PathBuf>> = OnceLock::new();
     CONFIG_PATH.get_or_init(|| {
-        let dir = get_config_dir();
-        let path = dir.join("config.toml");
+        let path = get_toml_path();
         log::info!("Using config path: {:?}", path);
         RwLock::new(path)
     })
