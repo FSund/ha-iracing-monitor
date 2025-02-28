@@ -25,6 +25,7 @@ pub enum SessionType {
     Qualify,
     Race,
     LoneQualify,
+    OfflineTesting,
 }
 
 impl Display for SessionType {
@@ -35,6 +36,7 @@ impl Display for SessionType {
             SessionType::Qualify => write!(f, "Qualify"),
             SessionType::Race => write!(f, "Race"),
             SessionType::LoneQualify => write!(f, "Lone Qualify"),
+            SessionType::OfflineTesting => write!(f, "Offline Testing"),
         }
     }
 }
@@ -235,6 +237,7 @@ impl SimMonitor {
                     "Qualify" => SessionType::Qualify,
                     "Race" => SessionType::Race,
                     "Lone Qualify" => SessionType::LoneQualify,
+                    "Offline Testing" => SessionType::OfflineTesting,
                     unknown => {
                         log::warn!("Unknown session type received: {}", unknown);
                         SessionType::Disconnected

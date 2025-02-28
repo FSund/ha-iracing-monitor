@@ -27,19 +27,47 @@ enum UserEvent {
     TrayIconEvent(tray_icon::TrayIconEvent),
     MenuEvent(tray_icon::menu::MenuEvent),
     Shutdown,
+    SimMonitorEvent(sim_monitor::Event),
 }
 
 struct Application {
     tray_icon: Option<TrayIcon>,
+    session_type: sim_monitor::SessionType,
 }
 
 impl Application {
     fn new() -> Application {
-        Application { tray_icon: None }
+        Application {
+            tray_icon: None,
+            session_type: sim_monitor::SessionType::Disconnected,
+        }
     }
 
     fn new_tray_icon() -> TrayIcon {
         tray::new_tray_icon()
+    }
+
+    fn update_tray_icon(&mut self, session_type: &sim_monitor::SessionType) {
+        if let Some(tray) = self.tray_icon.as_mut() {
+            let icon = match session_type {
+                sim_monitor::SessionType::Disconnected => tray::load_icon_disconnected(),
+                _ => tray::load_icon_connected(),
+            };
+            if let Ok(icon) = icon {
+                if let Err(e) = tray.set_icon(Some(icon)) {
+                    log::warn!("Failed to set tray icon: {}", e);
+                }
+            } else {
+                log::warn!("Failed to load connected tray icon");
+            }
+        }
+    }
+
+    fn update_menu(&mut self, session_type: &sim_monitor::SessionType) {
+        if let Some(tray) = self.tray_icon.as_mut() {
+            let new_menu = tray::make_menu(Some(session_type.to_string()));
+            tray.set_menu(Some(Box::new(new_menu)));
+        }
     }
 }
 
@@ -86,6 +114,19 @@ impl ApplicationHandler<UserEvent> for Application {
         match event {
             UserEvent::Shutdown => {
                 event_loop.exit();
+            }
+            UserEvent::SimMonitorEvent(
+                sim_monitor::Event::ConnectedToSim(state)
+                | sim_monitor::Event::DisconnectedFromSim(state),
+            ) => {
+                // Store the new session type in a temporary variable
+                let new_session_type = state.current_session_type;
+                // Compare with current session type
+                if new_session_type != self.session_type {
+                    self.session_type = new_session_type.clone();
+                    self.update_tray_icon(&new_session_type);
+                    self.update_menu(&new_session_type);
+                }
             }
             _ => log::debug!("{event:?}"),
         }

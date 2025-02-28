@@ -66,33 +66,48 @@ pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
     futures::stream::select(init_stream, futures::stream::select(rx, frontend_stream))
 }
 
-fn load_icon() -> Result<tray_icon::Icon> {
-    let pixels = resources::load_as_rgba(resources::ICON_BYTES)?;
+fn load_icon(icon_bytes: &[u8]) -> Result<tray_icon::Icon> {
+    let pixels = resources::load_as_rgba(icon_bytes)?;
     let icon = tray_icon::Icon::from_rgba(pixels.to_vec(), pixels.width(), pixels.height())?;
     Ok(icon)
 }
 
-pub fn new_tray_icon() -> TrayIcon {
+pub fn load_icon_connected() -> Result<tray_icon::Icon> {
+    load_icon(resources::ICON_BYTES)
+}
+
+pub fn load_icon_disconnected() -> Result<tray_icon::Icon> {
+    load_icon(resources::ICON_DISCONNECTED_BYTES)
+}
+
+pub fn make_menu(current_session: Option<String>) -> tray_icon::menu::Menu {
     // Create tray icon menu
     let menu = tray_icon::menu::Menu::new();
-    // TODO: don't hardcode the menu item ids using strings
     let options_item = tray_icon::menu::MenuItem::with_id("options", "Options", true, None);
     let quit_item = tray_icon::menu::MenuItem::with_id("quit", "Quit", true, None);
-    menu.append_items(&[
-        &options_item,
-        &PredefinedMenuItem::separator(),
-        // &PredefinedMenuItem::about(
-        //     None,
-        //     Some(AboutMetadata {
-        //         name: Some("tao".to_string()),
-        //         copyright: Some("Copyright tao".to_string()),
-        //         ..Default::default()
-        //     }),
-        // ),
-        // &PredefinedMenuItem::separator(),
-        &quit_item,
-    ])
-    .expect("Failed to append items");
+
+    // Add options item first
+    menu.append_items(&[&options_item, &PredefinedMenuItem::separator()])
+        .expect("Failed to append options item");
+
+    // Add session info in the middle if available
+    if let Some(session) = current_session {
+        menu.append_items(&[
+            &tray_icon::menu::MenuItem::new(session, false, None),
+            &PredefinedMenuItem::separator(),
+        ])
+        .expect("Failed to append session info");
+    }
+
+    // Add quit item last
+    menu.append_items(&[&quit_item])
+        .expect("Failed to append quit item");
+
+    menu
+}
+
+pub fn new_tray_icon() -> TrayIcon {
+    let menu = make_menu(None);
 
     // Add menu and tooltip
     let mut builder = TrayIconBuilder::new()
@@ -100,7 +115,7 @@ pub fn new_tray_icon() -> TrayIcon {
         .with_tooltip("iRacing HA Monitor");
 
     // Add icon
-    if let Ok(icon) = load_icon() {
+    if let Ok(icon) = load_icon_disconnected() {
         builder = builder.with_icon(icon);
     } else {
         log::warn!("Failed to load tray icon, continuing without icon");

@@ -47,7 +47,14 @@ pub fn connect(
                             log::debug!("Disconnected from sim");
                         }
                     }
-                    output.send(Event::Sim(event)).await.unwrap();
+                    output.send(Event::Sim(event.clone())).await.unwrap();
+
+                    // forward to winit/tray icon
+                    if let Some(ref event_loop_proxy) = winit_event_loop_proxy {
+                        if let Err(e) = event_loop_proxy.send_event(UserEvent::SimMonitorEvent(event)) {
+                            log::warn!("Failed to send event to winit: {}", e);
+                        }
+                    }
                 }
                 Some(event) = tray_events.next() => {
                     log::debug!("tray event: {:?}", event);
@@ -56,7 +63,7 @@ pub fn connect(
                         match menu_id.0.as_str() {
                             "quit" => {
                                 log::debug!("Quitting");
-                                if let Some(event_loop_proxy) = winit_event_loop_proxy {
+                                if let Some(ref event_loop_proxy) = winit_event_loop_proxy {
                                     if let Err(e) = event_loop_proxy.send_event(UserEvent::Shutdown) {
                                         panic!("Failed to send shutdown event to winit: {}", e);
                                     }
