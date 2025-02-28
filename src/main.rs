@@ -7,6 +7,7 @@ mod sim_monitor;
 mod tray;
 mod resources;
 mod config;
+mod helpers;
 
 use frontend::IracingMonitorGui;
 use futures::prelude::stream::StreamExt;

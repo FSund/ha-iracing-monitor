@@ -15,6 +15,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::sim_monitor::MqttConfig;
+use crate::helpers::get_config_dir;
 
 #[derive(Debug)]
 enum ConfigError {
@@ -46,31 +47,9 @@ impl AppConfig {
 fn config_path() -> &'static RwLock<PathBuf> {
     static CONFIG_PATH: OnceLock<RwLock<PathBuf>> = OnceLock::new();
     CONFIG_PATH.get_or_init(|| {
-        let toml_name = "config.toml";
-
-        // First try executable directory
-        let exe_config = std::env::current_exe()
-            .ok()
-            .and_then(|exe_path| exe_path.parent().map(|p| p.to_path_buf()))
-            .map(|exe_dir| exe_dir.join(toml_name));
-
-        // If exe config exists, use it
-        if let Some(path) = exe_config.filter(|p| p.exists()) {
-            log::info!("Using config from executable directory: {:?}", path);
-            return RwLock::new(path);
-        }
-
-        // Otherwise, use ProjectDirs
-        let proj_dirs = ProjectDirs::from("com", "FSund", "iracing-ha-monitor")
-            .expect("Failed to determine project directories");
-        
-        // Create config directory if it doesn't exist
-        fs::create_dir_all(proj_dirs.config_dir())
-            .expect("Failed to create config directory");
-
-        let path = proj_dirs.config_dir().join(toml_name);
-        log::info!("Using config from user directory: {:?}", path);
-        
+        let dir = get_config_dir();
+        let path = dir.join("config.toml");
+        log::info!("Using config path: {:?}", path);
         RwLock::new(path)
     })
 }
