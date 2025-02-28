@@ -350,7 +350,7 @@ impl IracingMonitorGui {
             text(format!(
                 "Session type: {}",
                 if let Some(sim_state) = &self.sim_state {
-                    sim_state.current_session_type.clone()
+                    sim_state.current_session_type.clone().to_string()
                 } else {
                     "None".to_string()
                 }

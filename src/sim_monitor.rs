@@ -13,12 +13,37 @@ use iracing_client::SimClient;
 use rumqttc::{AsyncClient, MqttOptions, QoS};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
+use std::fmt::{Display, Formatter};
+
+#[derive(Debug, Serialize, Clone, PartialEq, EnumIter)]
+pub enum SessionType {
+    // Unknown,
+    Disconnected,
+    Practice,
+    Qualify,
+    Race,
+    LoneQualify,
+}
+
+impl Display for SessionType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            SessionType::Disconnected => write!(f, "Disconnected"),
+            SessionType::Practice => write!(f, "Practice"),
+            SessionType::Qualify => write!(f, "Qualify"),
+            SessionType::Race => write!(f, "Race"),
+            SessionType::LoneQualify => write!(f, "Lone Qualify"),
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct SimMonitorState {
     pub connected: bool,
     // in_session: bool,
-    pub current_session_type: String,
+    pub current_session_type: SessionType,
     // session_state: String,
     pub timestamp: String,
 }
@@ -28,7 +53,7 @@ impl Default for SimMonitorState {
         Self {
             connected: false,
             // in_session: false,
-            current_session_type: "None".to_string(), // "None" registers as "Unknown" in Home Assistant
+            current_session_type: SessionType::Disconnected,
             // session_state: "None".to_string(),
             timestamp: Utc::now().to_rfc3339(),
         }
@@ -198,24 +223,35 @@ impl SimMonitor {
     }
 
     async fn get_current_state(&mut self) -> SimMonitorState {
-        // let connected = self.iracing.is_connected();
         match self.iracing.get_current_session_type().await {
             Some(session_type) => {
                 log::debug!("Found session_type: {}", session_type);
+                
+                // Convert the string to SessionType
+                let session_type_enum = match session_type.as_str() {
+                    "Practice" => SessionType::Practice,
+                    "Qualify" => SessionType::Qualify,
+                    "Race" => SessionType::Race,
+                    "Lone Qualify" => SessionType::LoneQualify,
+                    unknown => {
+                        log::warn!("Unknown session type received: {}", unknown);
+                        SessionType::Disconnected
+                    }
+                };
+    
                 SimMonitorState {
                     connected: true,
-                    current_session_type: session_type,
+                    current_session_type: session_type_enum,
                     timestamp: Utc::now().to_rfc3339(),
                 }
             }
             None => SimMonitorState {
                 connected: false,
-                current_session_type: "Disconnected".to_string(),
+                current_session_type: SessionType::Disconnected,
                 timestamp: Utc::now().to_rfc3339(),
             },
         }
     }
-
     // // Add a cleanup method
     // pub async fn cleanup(&mut self) {
     //     if let Some(handle) = self.mqtt_eventloop_handle.take() {
@@ -246,33 +282,31 @@ async fn register_device(mqtt: &mut AsyncClient) -> Result<()> {
     // Best practice for entities with a unique_id is to set <object_id> to unique_id and omit the <node_id>.
 
     let configuration_topic = "homeassistant/sensor/iracing/config";
+    
+    // Get all session types as strings
+    let options: Vec<String> = SessionType::iter()
+        .map(|st| st.to_string())
+        .collect();
+
     let config = serde_json::json!({
         "name": "Session type",
         "state_topic": "homeassistant/sensor/iracing/state",
-        // "device_class": "timestamp",  // optional, will use "None: Generic sensor. (This is the default and doesn’t need to be set.)" if not set
         "value_template": "{{ value_json.current_session_type }}",
         "unique_id": "iracing_session_type",
         "expire_after": 30,
         "icon": "mdi:racing-helmet",
         "device_class": "enum",
-        "options": [
-            "Disconnected",
-            "Practice",
-            "Qualifying",
-            "Race",
-            "Lone Qualifying",
-        ],
+        "options": options,
         "device": {
             "identifiers": "my_unique_id",
             "name": "iRacing Simulator",
         },
-        // "json_attributes_topic": "homeassistant/sensor/iracing/attributes",
     });
 
     mqtt.publish(
         configuration_topic,
         QoS::AtLeastOnce,
-        true, // retain flag set to true for discovery
+        true,
         serde_json::to_string(&config)?,
     )
     .await
