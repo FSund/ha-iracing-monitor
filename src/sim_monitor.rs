@@ -414,10 +414,10 @@ pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
                     }
 
                     // Check if the state has changed
-                    if state != previous_state {
+                    if state.current_session_type != previous_state.current_session_type || state.connected != previous_state.connected {
                         log::info!("State changed, new state: {:?}", state);
-                        previous_state = state;
                     }
+                    previous_state = state;
                 }
             }
         }
