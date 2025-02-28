@@ -19,14 +19,10 @@ use tracing_subscriber::{
 };
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
-use tray_icon::{
-    menu::{AboutMetadata, Menu, MenuEvent, MenuItem, PredefinedMenuItem},
-    TrayIcon, TrayIconBuilder, TrayIconEvent, TrayIconEventReceiver,
-};
+use tray_icon::TrayIcon;
 use winit::{
     application::ApplicationHandler,
-    event::Event,
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
+    event_loop::EventLoop,
 };
 
 #[derive(Debug)]
@@ -94,7 +90,7 @@ impl ApplicationHandler<UserEvent> for Application {
             UserEvent::Shutdown => {
                 event_loop.exit();
             }
-            _ => println!("{event:?}"),
+            _ => log::debug!("{event:?}"),
         }
     }
 }
@@ -175,6 +171,7 @@ async fn main() -> anyhow::Result<()> {
         //   saved to the config file when the user changes something, and updated (via message from the backend) when the config file changes
         // - sim status and tray events should be sent to the frontend via messages from the backend
     } else {
+        // create the winit event loop
         let event_loop = EventLoop::<UserEvent>::with_user_event().build().unwrap();
         let event_loop_proxy = event_loop.create_proxy();
 
@@ -185,30 +182,13 @@ async fn main() -> anyhow::Result<()> {
                 // log::debug!("event: {:?}", event);
             }).await;
         });
-        // handle.await.expect("Stream task failed");
 
-        
-
-        // set a tray event handler that forwards the event and wakes up the event loop
-        // let proxy = event_loop.create_proxy();
-        // TrayIconEvent::set_event_handler(Some(move |event| {
-        //     proxy.send_event(UserEvent::TrayIconEvent(event));
-        // }));
-        // let proxy = event_loop.create_proxy();
-        // MenuEvent::set_event_handler(Some(move |event| {
-        //     proxy.send_event(UserEvent::MenuEvent(event));
-        // }));
-
+        // run the application (only contains the tray icon)
         let mut app = Application::new();
-
-        // let menu_channel = MenuEvent::receiver();
-        // let tray_channel = TrayIconEvent::receiver();
-    
         if let Err(err) = event_loop.run_app(&mut app) {
-            println!("Error: {:?}", err);
+            log::error!("App error: {:?}", err);
         }
     }
 
     Ok(())
 }
-
