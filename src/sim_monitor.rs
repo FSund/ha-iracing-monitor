@@ -365,6 +365,9 @@ pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
         const UPDATE_INTERVAL: Duration = Duration::from_secs(1);
         let mut interval = tokio::time::interval(UPDATE_INTERVAL);
 
+        // Get the initial state
+        let mut previous_state = monitor.get_current_state().await;
+
         // Send the sender back to the application
         output
             .send(Event::Ready(Connection(sender)))
@@ -401,15 +404,19 @@ pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
 
                     // Publish state event
                     let event = if state.connected {
-                        log::info!("Connected to sim");
-                        Event::ConnectedToSim(state)
+                        Event::ConnectedToSim(state.clone())
                     } else {
-                        log::info!("Disconnected from sim");
-                        Event::DisconnectedFromSim(state)
+                        Event::DisconnectedFromSim(state.clone())
                     };
                     if let Err(e) = output.send(event).await {
                         log::error!("Failed to send state event: {}", e);
                         // break; // Consider breaking the loop if we can't send events
+                    }
+
+                    // Check if the state has changed
+                    if state != previous_state {
+                        log::info!("State changed, new state: {:?}", state);
+                        previous_state = state;
                     }
                 }
             }
