@@ -2,6 +2,7 @@
 name = "iracing-ha-monitor"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 anyhow = "1.0.95"
@@ -38,6 +39,9 @@ yaml-rust = "0.4.5"
 simetry = { version = "0.2.3", default-features = false }
 #windows = "0.59.0"
 windows = { version = "0.60.0", features = ["Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18.2"

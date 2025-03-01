@@ -1,5 +1,9 @@
 # iRacing Home Assistant Monitor
 
+## Requirements
+
+Requires `windres.exe` and `ar.exe` from [mingw-w64](https://www.mingw-w64.org/) to build the Windows resources (only used to set the icon).
+
 ## TODO
 - [ ] Use proper location for config file (%APPDATA% on Windows, XDG_CONFIG_... on Linux)
 - [x] Fix double tray icons
