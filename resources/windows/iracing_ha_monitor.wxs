@@ -22,7 +22,7 @@
       <!-- Application shortcut -->
       <DirectoryRef Id="iRacingMonitorProgramMenu">
          <Component Id="iRacingMonitorShortcut" Guid="a6337155-61b3-427c-b724-dd1ee826aa97">
-            <Shortcut Id="iRacingMonitorShortcutFile" Name="iRacingMonitor" Description="A cross-platform, GPU-accelerated terminal emulator" Target="[iRacingMonitorProgramFiles]iracing-ha-monitor.exe" />
+            <Shortcut Id="iRacingMonitorShortcutFile" Name="iRacingMonitor" Description="iRacing Monitor with Home Assistant integration via MQTT" Target="[iRacingMonitorProgramFiles]iracing-ha-monitor.exe" />
             <RemoveFolder Id="iRacingMonitorProgramMenu" On="uninstall" />
             <RegistryValue Root="HKCU" Key="Software\Microsoft\iRacingMonitor" Name="installed" Type="integer" Value="1" KeyPath="yes" />
          </Component>

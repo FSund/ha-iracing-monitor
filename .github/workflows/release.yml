@@ -131,11 +131,11 @@ jobs:
       - name: Create msi installer
         run: |
           wix extension add WixToolset.UI.wixext/4.0.5 WixToolset.Util.wixext/4.0.5
-          wix build -arch "x64" -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -out "./iracing-ha-monitor-${GITHUB_REF##*/}-installer.msi" "resources/windows/iracing_ha_monitor.wxs"
+          wix build -arch "x64" -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -out "./iracing-ha-monitor-${{ env.VERSION }}-installer.msi" "resources/windows/iracing_ha_monitor.wxs"
 
-      - name: Release
+      - name: Upload assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
             ${{ env.ASSET }}
-            iracing-ha-monitor-${GITHUB_REF##*/}-installer.msi
+            iracing-ha-monitor-${{ env.VERSION }}-installer.msi
