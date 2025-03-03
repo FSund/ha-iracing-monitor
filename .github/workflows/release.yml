@@ -14,34 +14,22 @@ env:
   ASSET: ${{ github.event.release.tag_name }}.zip
 
 jobs:
-  release:
-    name: release ${{ matrix.target }}
+  linux:
+    name: Linux release 
     runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-pc-windows-gnu
-            archive-suffix: .zip
-          - target: x86_64-unknown-linux-gnu
-            archive-suffix: .tar.gz
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Get the release version from the tag
         shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
-      - name: Set up Rust
-        run: |
-          rustup toolchain install stable --profile minimal --no-self-update --target ${{ matrix.target }}
-
       # Add cache for release job
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "release-${{ matrix.target }}"
+          shared-key: "release-linux"
           cache-directories: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
@@ -62,7 +50,7 @@ jobs:
             mingw-w64
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release
 
       - name: Build archive
         shell: bash
@@ -70,30 +58,83 @@ jobs:
           # Get binary name from Cargo.toml
           binary_name=$(grep -m1 'name *=' Cargo.toml | cut -d '"' -f2)
 
-          dirname="$binary_name-${{ env.VERSION }}-${{ matrix.target }}"
+          dirname="$binary_name-${{ env.VERSION }}-linux"
           mkdir "$dirname"
           
           # Copy binary
-          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            mv "target/${{ matrix.target }}/release/$binary_name.exe" "$dirname"
-          else
-            mv "target/${{ matrix.target }}/release/$binary_name" "$dirname"
-          fi
+          mv "target/release/$binary_name" "$dirname"
 
           # Copy additional files
           cp README.md LICENSE* "$dirname" 2>/dev/null || true
 
-          # Create archive based on target
-          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            7z a "$dirname.zip" "$dirname"
-            echo "ASSET=$dirname.zip" >> $GITHUB_ENV
-          else
-            tar -czf "$dirname.tar.gz" "$dirname"
-            echo "ASSET=$dirname.tar.gz" >> $GITHUB_ENV
-          fi
+          # Create archive
+          tar -czf "$dirname.tar.gz" "$dirname"
+          echo "ASSET=$dirname.tar.gz" >> $GITHUB_ENV
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             ${{ env.ASSET }}
+
+  windows:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get the release version from the tag
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      # Add cache for release job
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-windows"
+          cache-directories: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git
+            target/
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Build archive
+        shell: bash
+        run: |
+          # Get binary name from Cargo.toml
+          binary_name=$(grep -m1 'name *=' Cargo.toml | cut -d '"' -f2)
+
+          dirname="$binary_name-${{ env.VERSION }}-windows-portable"
+          mkdir "$dirname"
+          
+          # Copy binary
+          mv "target/release/$binary_name.exe" "$dirname"
+
+          # Copy additional files
+          cp README.md LICENSE* "$dirname" 2>/dev/null || true
+
+          # Create archive
+          7z a "$dirname.zip" "$dirname"
+          echo "ASSET=$dirname.zip" >> $GITHUB_ENV
+
+      - name: Install WiX
+        run: dotnet tool install --global wix --version 4.0.5
+
+      - name: Create msi installer
+        run: |
+          wix extension add WixToolset.UI.wixext/4.0.5 WixToolset.Util.wixext/4.0.5
+          wix build -arch "x64" -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -out "./iracing-ha-monitor-${GITHUB_REF##*/}-installer.msi" "resources/windows/iracing_ha_monitor.wxs"
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ASSET }}
+            iracing-ha-monitor-${GITHUB_REF##*/}-installer.msi
