@@ -78,6 +78,7 @@ jobs:
             ${{ env.ASSET }}
 
   windows:
+    name: Windows release
     runs-on: windows-latest
 
     defaults:
