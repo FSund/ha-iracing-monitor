@@ -50,6 +50,7 @@ pub fn connect(
                     output.send(Event::Sim(event.clone())).await.unwrap();
 
                     // forward to winit/tray icon
+                    log::debug!("Sending sim event to winit");
                     if let Some(ref event_loop_proxy) = winit_event_loop_proxy {
                         if let Err(e) = event_loop_proxy.send_event(UserEvent::SimMonitorEvent(event)) {
                             log::warn!("Failed to send event to winit: {}", e);

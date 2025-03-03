@@ -88,11 +88,14 @@ pub struct SimMonitor {
     mqtt_topic: String,
 
     mqtt_eventloop_handle: Option<tokio::task::JoinHandle<()>>,
+    mqtt_eventloop: Option<rumqttc::EventLoop>,
 }
 
 impl SimMonitor {
-    pub fn new() -> Self {
-        SimMonitor::new_with_mqtt_client(None)
+    pub fn new(mqtt_config: Option<MqttConfig>) -> Self {
+        let mut monitor = SimMonitor::new_with_mqtt_client(None);
+        monitor.set_mqtt_config(mqtt_config);
+        monitor
     }
 
     pub fn new_with_mqtt_client(mqtt_client: Option<AsyncClient>) -> Self {
@@ -102,58 +105,76 @@ impl SimMonitor {
             last_state: None,
             mqtt_topic: "homeassistant/sensor/iracing/state".to_string(),
             mqtt_eventloop_handle: None,
+            mqtt_eventloop: None,
         }
     }
 
-    async fn update_mqtt_config(&mut self, mqtt_config: MqttConfig) {
+    fn set_mqtt_config(&mut self, mqtt_config: Option<MqttConfig>) {
         // If we have an existing event loop, abort it before creating a new one
         if let Some(handle) = self.mqtt_eventloop_handle.take() {
             log::debug!("Aborting MQTT event loop");
             handle.abort();
         }
 
+        let Some(mqtt_config) = mqtt_config else {
+            log::debug!("Disabling MQTT");
+            self.mqtt = None;
+            return;
+        };
+
         let mut mqtt_options =
             MqttOptions::new("iracing-monitor", mqtt_config.host, mqtt_config.port);
         mqtt_options.set_keep_alive(Duration::from_secs(5));
         mqtt_options.set_credentials(mqtt_config.user, mqtt_config.password);
-        let (mqtt_client, mut mqtt_eventloop) = AsyncClient::new(mqtt_options, 10);
+        let (mqtt_client, mqtt_eventloop) = AsyncClient::new(mqtt_options, 10);
 
-        // Store the client
+        // Store the client and event loop
         self.mqtt = Some(mqtt_client);
+        self.mqtt_eventloop = Some(mqtt_eventloop); // Store the event loop without starting it yet
+    }
 
-        // Spawn and store the event loop handle
-        log::debug!("Starting MQTT event loop");
-        self.mqtt_eventloop_handle = Some(tokio::spawn(async move {
-            loop {
-                match mqtt_eventloop.poll().await {
-                    Ok(_notification) => {
-                        // log::debug!("MQTT event: {:?}", notification);
+    async fn start_mqtt_eventloop(&mut self) {
+        if self.mqtt.is_none() {
+            return;
+        }
+
+        if let Some(mut mqtt_eventloop) = self.mqtt_eventloop.take() {
+            // Spawn and store the event loop handle
+            log::debug!("Starting MQTT event loop");
+            self.mqtt_eventloop_handle = Some(tokio::spawn(async move {
+                loop {
+                    match mqtt_eventloop.poll().await {
+                        Ok(_notification) => {
+                            // log::debug!("MQTT event: {:?}", notification);
+                        }
+                        Err(e) => {
+                            // Just log the error but keep polling - the event loop will handle reconnection
+                            // log::error!("MQTT error (will retry automatically): {:?}", e);
+                            log::error!("MQTT error {e}");
+                            tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
+                        }
                     }
-                    Err(e) => {
-                        // Just log the error but keep polling - the event loop will handle reconnection
-                        // log::error!("MQTT error (will retry automatically): {:?}", e);
-                        log::error!("MQTT error {e}");
-                        tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
-                    }
+
+                    // Small yield to prevent tight loop
+                    // tokio::task::yield_now().await;
+
+                    // TODO: is this the way?
+                    // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 }
+            }));
 
-                // Small yield to prevent tight loop
-                // tokio::task::yield_now().await;
+            log::debug!("MQTT client set up.");
 
-                // TODO: is this the way?
-                // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // Register the device
+            if let Some(mqtt) = self.mqtt.as_mut() {
+                if let Err(e) = register_device(mqtt).await {
+                    log::warn!("Failed to register MQTT device ({e})");
+                }
+                // Add a small delay to ensure registration is processed
+                tokio::time::sleep(Duration::from_secs(1)).await;
             }
-        }));
-
-        log::debug!("MQTT client set up.");
-
-        // Register the device
-        if let Some(mqtt) = self.mqtt.as_mut() {
-            if let Err(e) = register_device(mqtt).await {
-                log::warn!("Failed to register MQTT device ({e})");
-            }
-            // Add a small delay to ensure registration is processed
-            tokio::time::sleep(Duration::from_secs(1)).await;
+        } else {
+            log::error!("Failed to start MQTT event loop, missing event loop");
         }
     }
 
@@ -354,15 +375,16 @@ impl std::fmt::Display for Event {
 }
 
 pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
-    let mut monitor = SimMonitor::new();
+    // Create the monitor
+    let mqtt_config = config.clone().map(|c| c.mqtt);
+    let mut monitor = SimMonitor::new(mqtt_config);
 
     iced_stream::channel(100, |mut output| async move {
-        if let Some(config) = config {
-            monitor.update_mqtt_config(config.mqtt).await;
-        }
-
         // Create channel
         let (sender, mut receiver) = mpsc::channel(100);
+
+        // Start the MQTT event loop
+        monitor.start_mqtt_eventloop().await;
 
         // Sim state update interval
         const UPDATE_INTERVAL: Duration = Duration::from_secs(1);
@@ -386,13 +408,11 @@ pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
                             log::debug!("Received config update");
                             if config.mqtt_enabled {
                                 log::info!("Updating mqtt config");
-                                monitor.update_mqtt_config(config.mqtt).await;
+                                monitor.set_mqtt_config(Some(config.mqtt));
+                                monitor.start_mqtt_eventloop().await;
                             } else if monitor.mqtt.is_some() {
                                 log::info!("Disabling MQTT");
-                                if let Some(handle) = monitor.mqtt_eventloop_handle.take() {
-                                    handle.abort();
-                                }
-                                monitor.mqtt = None;
+                                monitor.set_mqtt_config(None);
                             }
                         }
                     }
