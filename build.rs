@@ -10,7 +10,7 @@ fn main() {
     // though it can only be checked at runtime of the build script.
     if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
         let mut res = winresource::WindowsResource::new();
-        res.set_icon("resources/icon.ico");
+        res.set_icon("resources/windows/icon.ico");
         res.compile().unwrap();
     }
 }
