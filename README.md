@@ -24,3 +24,12 @@ Requires `windres.exe` and `ar.exe` from [mingw-w64](https://www.mingw-w64.org/)
 - [x] Separate main page and settings page in gui
 - [ ] Installer
   - [ ] Run as service? Or just "run on boot" option?
+
+## License
+
+This project is licensed under either of
+
+ * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+
+at your option.
