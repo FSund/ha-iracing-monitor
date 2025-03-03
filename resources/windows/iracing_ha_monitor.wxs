@@ -1,7 +1,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
-   <Package Name="iRacingMonitor" UpgradeCode="87c21c74-dbd5-4584-89d5-46d9cd0c40a7" Language="1033" Codepage="1252" Version="0.16.0-dev" Manufacturer="iRacingMonitor" InstallerVersion="200">
+   <Package Name="iRacingMonitor" UpgradeCode="6b9a10ae-847e-4a99-87d6-382b4fa7de16" Language="1033" Codepage="1252" Version="0.3.6" Manufacturer="iRacingMonitor" InstallerVersion="200">
       <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
-      <Icon Id="iRacingMonitorIco" SourceFile=".\resources\icon.ico" />
+      <Icon Id="iRacingMonitorIco" SourceFile=".\resources\windows\icon.ico" />
       <!-- <WixVariable Id="WixUILicenseRtf" Value=".\alacritty\windows\wix\license.rtf" /> -->
       <Property Id="ARPPRODUCTICON" Value="iRacingMonitorIco" />
       <MediaTemplate EmbedCab="yes" />
@@ -21,7 +21,7 @@
 
       <!-- Application shortcut -->
       <DirectoryRef Id="iRacingMonitorProgramMenu">
-         <Component Id="iRacingMonitorShortcut" Guid="aa36e61a-23cd-4383-b744-2f78e912f0dc">
+         <Component Id="iRacingMonitorShortcut" Guid="a6337155-61b3-427c-b724-dd1ee826aa97">
             <Shortcut Id="iRacingMonitorShortcutFile" Name="iRacingMonitor" Description="A cross-platform, GPU-accelerated terminal emulator" Target="[iRacingMonitorProgramFiles]iracing-ha-monitor.exe" />
             <RemoveFolder Id="iRacingMonitorProgramMenu" On="uninstall" />
             <RegistryValue Root="HKCU" Key="Software\Microsoft\iRacingMonitor" Name="installed" Type="integer" Value="1" KeyPath="yes" />
