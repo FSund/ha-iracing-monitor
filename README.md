@@ -1,5 +1,7 @@
 # iRacing Home Assistant Monitor
 
+Monitors iRacing session state and sends it to Home Assistant via MQTT.
+
 ## Requirements
 
 Requires `windres.exe` and `ar.exe` from [mingw-w64](https://www.mingw-w64.org/) to build the Windows resources (only used to set the icon).
