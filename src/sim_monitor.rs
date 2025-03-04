@@ -93,20 +93,16 @@ pub struct SimMonitor {
 
 impl SimMonitor {
     pub fn new(mqtt_config: Option<MqttConfig>) -> Self {
-        let mut monitor = SimMonitor::new_with_mqtt_client(None);
-        monitor.set_mqtt_config(mqtt_config);
-        monitor
-    }
-
-    pub fn new_with_mqtt_client(mqtt_client: Option<AsyncClient>) -> Self {
-        Self {
+        let mut monitor = Self {
             iracing: iracing_client::Client::new(),
-            mqtt: mqtt_client,
+            mqtt: None,
             last_state: None,
             mqtt_topic: "homeassistant/sensor/iracing/state".to_string(),
             mqtt_eventloop_handle: None,
             mqtt_eventloop: None,
-        }
+        };
+        monitor.set_mqtt_config(mqtt_config);
+        monitor
     }
 
     fn set_mqtt_config(&mut self, mqtt_config: Option<MqttConfig>) {
@@ -135,6 +131,7 @@ impl SimMonitor {
 
     async fn start_mqtt_eventloop(&mut self) {
         if self.mqtt.is_none() {
+            log::debug!("MQTT disabled, skipping event loop start");
             return;
         }
 
@@ -376,7 +373,7 @@ impl std::fmt::Display for Event {
 
 pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
     // Create the monitor
-    let mqtt_config = config.clone().map(|c| c.mqtt);
+    let mqtt_config = config.and_then(|c| if c.mqtt_enabled { Some(c.mqtt) } else { None });
     let mut monitor = SimMonitor::new(mqtt_config);
 
     iced_stream::channel(100, |mut output| async move {
@@ -391,7 +388,8 @@ pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
         let mut interval = tokio::time::interval(UPDATE_INTERVAL);
 
         // Get the initial state
-        let mut previous_state = monitor.get_current_state().await;
+        // let mut previous_state = monitor.get_current_state().await;
+        let mut previous_state = SimMonitorState::default();
 
         // Send the sender back to the application
         output
