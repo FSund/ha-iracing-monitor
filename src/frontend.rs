@@ -214,7 +214,10 @@ impl IracingMonitorGui {
                                 // }
                                 match id.0.as_str() {
                                     // TODO: matching on strings is bad and you should feel bad
-                                    "quit" => return Task::done(Message::Quit),
+                                    "quit" => {
+                                        log::debug!("Quitting");
+                                        return Task::done(Message::Quit);
+                                    }
                                     "options" => return self.open_window(),
                                     _ => {
                                         log::warn!("Unknown tray menu item clicked: {}", id.0);

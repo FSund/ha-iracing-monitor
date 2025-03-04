@@ -83,6 +83,7 @@ impl ApplicationHandler<UserEvent> for Application {
     }
 
     fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
+        log::debug!("Application received user event: {:?}", event);
         match event {
             UserEvent::SimMonitorEvent(
                 sim_monitor::Event::ConnectedToSim(state)
@@ -91,6 +92,7 @@ impl ApplicationHandler<UserEvent> for Application {
                 self.tray_icon.update_state(state);
             }
             UserEvent::Shutdown => {
+                log::info!("Shutting down tray icon and winit event loop");
                 self.tray_icon.shutdown();
                 event_loop.exit();
             }

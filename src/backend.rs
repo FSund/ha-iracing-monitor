@@ -33,7 +33,7 @@ pub fn connect(
         loop {
             tokio::select! {
                 Some(event) = sim_events.next() => {
-                    log::debug!("sim event: {:?}", event);
+                    log::debug!("Sim event: {:?}", event);
                     match event.clone() {
                         sim_monitor::Event::Ready(connection) => {
                             // // send the current config to the sim monitor
@@ -50,15 +50,17 @@ pub fn connect(
                     output.send(Event::Sim(event.clone())).await.unwrap();
 
                     // forward to winit/tray icon
-                    log::debug!("Sending sim event to winit");
+                    log::debug!("Sending sim event to winit event loop");
                     if let Some(ref event_loop_proxy) = winit_event_loop_proxy {
                         if let Err(e) = event_loop_proxy.send_event(UserEvent::SimMonitorEvent(event)) {
                             log::warn!("Failed to send event to winit: {}", e);
+                        } else {
+                            log::debug!("Sent sim event to winit");
                         }
                     }
                 }
                 Some(event) = tray_events.next() => {
-                    log::debug!("tray event: {:?}", event);
+                    log::debug!("Tray event: {:?}", event);
                     if let tray::TrayEventType::MenuItemClicked(menu_id) = event.clone() {
                         log::debug!("menu_id: {:?}", menu_id);
                         match menu_id.0.as_str() {
@@ -66,10 +68,12 @@ pub fn connect(
                                 log::debug!("Quitting");
                                 if let Some(ref event_loop_proxy) = winit_event_loop_proxy {
                                     if let Err(e) = event_loop_proxy.send_event(UserEvent::Shutdown) {
-                                        panic!("Failed to send shutdown event to winit: {}", e);
+                                        panic!("Failed to send shutdown event to winit event loop: {}", e);
                                     }
                                 }
-                                break;
+                                // Don't break here, we still want to send the event to the frontend
+                                // The connection will be closed by the frontend or the winit/tray-icon event loop
+                                // break;
                             }
                             "options" => {
                                 log::debug!("Opening config file");
@@ -87,7 +91,7 @@ pub fn connect(
                     output.send(Event::Tray(event)).await.unwrap();
                 }
                 Some(event) = config_events.next() => {
-                    log::debug!("config event: {:?}", event);
+                    log::debug!("Config event: {:?}", event);
                     match event.clone() {
                         // config::Event::Created(app_config) => {
                         //     log::debug!("Config created");
