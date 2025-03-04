@@ -68,7 +68,8 @@ pub struct IracingMonitorGui {
     sim_state: Option<sim_monitor::SimMonitorState>,
 
     // tray_icon: Option<TrayIcon>,
-    tray: Option<tray::Connection>,
+    // tray: Option<tray::Connection>,
+    tray_icon: Box<dyn tray::TrayIconInterface>,
 
     window_id: Option<window::Id>,
 
@@ -95,7 +96,8 @@ impl IracingMonitorGui {
                 sim_state: None,
 
                 // tray_icon: Some(new_tray_icon()), // panic, gtk has hot been initialized, call gtk::init first
-                tray: None,
+                // tray: None,
+                tray_icon: tray::create_tray_icon(),
 
                 window_id: Some(id),
                 screen: Screen::Home,
@@ -179,18 +181,16 @@ impl IracingMonitorGui {
                                 self.state = State::ConnectedToBackend(connection);
                                 log::info!("Backend ready, waiting for game");
                             }
-                            sim_monitor::Event::DisconnectedFromSim(state) => {
+                            sim_monitor::Event::ConnectedToSim(state)
+                            | sim_monitor::Event::DisconnectedFromSim(state) => {
                                 if self.connected_to_sim {
                                     log::info!("Disconnected from game");
                                     self.connected_to_sim = false;
-                                }
-                                self.sim_state = Some(state);
-                            }
-                            sim_monitor::Event::ConnectedToSim(state) => {
-                                if !self.connected_to_sim {
+                                } else {
                                     log::info!("Connected to game");
                                     self.connected_to_sim = true;
                                 }
+                                self.tray_icon.update_state(state.clone());
                                 self.sim_state = Some(state);
                             }
                         }
@@ -222,11 +222,9 @@ impl IracingMonitorGui {
                                     }
                                 }
                             }
-                            tray::TrayEventType::Connected(connection) => {
-                                self.tray = Some(connection);
-                            } // tray::TrayEventType::IconClicked => {
-                              //     self.open_window()
-                              // }
+                            _ => {
+                                log::debug!("Can probably remove TrayEventType::Connected ??");
+                            }
                         }
                     }
                 }
@@ -250,9 +248,10 @@ impl IracingMonitorGui {
                 }
 
                 // kill tray
-                if let Some(tray) = &mut self.tray {
-                    tray.send(tray::Message::Quit);
-                }
+                // if let Some(tray) = &mut self.tray {
+                //     tray.send(tray::Message::Quit);
+                // }
+                self.tray_icon.shutdown();
 
                 return iced::exit();
             }

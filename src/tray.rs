@@ -1,4 +1,5 @@
 use crate::resources;
+use crate::sim_monitor;
 
 use anyhow::Result;
 use futures::channel::mpsc;
@@ -6,6 +7,130 @@ use futures::prelude::stream::StreamExt;
 use futures::stream::Stream;
 use tray_icon::menu::{MenuId, PredefinedMenuItem};
 use tray_icon::{menu::MenuEvent, TrayIcon, TrayIconBuilder};
+
+// TODO: make a common interface (a trait?) for the tray icon
+// that receives SimMonitorEvents and sends it either directly to the tray icon instance,
+// or sends it to the channel that the tray icon in the gtk thread listens to
+
+struct MyTrayIcon {
+    tray_icon: TrayIcon,
+    session_type: Option<sim_monitor::SessionType>,
+}
+
+impl MyTrayIcon {
+    fn new() -> Self {
+        Self {
+            tray_icon: new_tray_icon(),
+            session_type: None,
+        }
+    }
+
+    fn update_tray_icon(&mut self, session_type: &sim_monitor::SessionType) {
+        let icon = match session_type {
+            sim_monitor::SessionType::Disconnected => load_icon_disconnected(),
+            _ => load_icon_connected(),
+        };
+        if let Ok(icon) = icon {
+            if let Err(e) = self.tray_icon.set_icon(Some(icon)) {
+                log::warn!("Failed to set tray icon: {}", e);
+            }
+        } else {
+            log::warn!("Failed to load connected tray icon");
+        }
+    }
+
+    fn update_menu(&mut self, session_type: &sim_monitor::SessionType) {
+        let new_menu = make_menu(Some(session_type.to_string()));
+        self.tray_icon.set_menu(Some(Box::new(new_menu)));
+    }
+
+    fn update_session_state(&mut self, new_state: sim_monitor::SessionType) {
+        let old_state = self.session_type.replace(new_state.clone());
+        if old_state.as_ref() != Some(&new_state) {
+            log::debug!("Received new session state: {:?}", new_state);
+            self.update_tray_icon(&new_state);
+            self.update_menu(&new_state);
+        }
+    }
+}
+
+pub trait TrayIconInterface {
+    fn update_state(&mut self, state: sim_monitor::SimMonitorState);
+    fn shutdown(&mut self);
+}
+
+// Implement for MyTrayIcon (Windows/macOS)
+impl TrayIconInterface for MyTrayIcon {
+    fn update_state(&mut self, state: sim_monitor::SimMonitorState) {
+        self.update_session_state(state.current_session_type);
+    }
+
+    fn shutdown(&mut self) {
+        // Nothing special needed for direct implementation
+    }
+}
+
+// Add a new struct for Linux GTK implementation
+pub struct GtkTrayIcon {
+    sender: std::sync::mpsc::Sender<sim_monitor::SimMonitorState>,
+}
+
+impl GtkTrayIcon {
+    pub fn new(sender: std::sync::mpsc::Sender<sim_monitor::SimMonitorState>) -> Self {
+        Self { sender }
+    }
+}
+
+impl TrayIconInterface for GtkTrayIcon {
+    fn update_state(&mut self, state: sim_monitor::SimMonitorState) {
+        if let Err(e) = self.sender.send(state) {
+            log::error!("Failed to send state to GTK tray: {}", e);
+        }
+    }
+
+    fn shutdown(&mut self) {
+        // Channel will be closed when dropped
+    }
+}
+
+// Create a platform-specific factory function
+pub fn create_tray_icon() -> Box<dyn TrayIconInterface> {
+    #[cfg(target_os = "linux")]
+    {
+        let (tx, rx) = mpsc::channel();
+
+        // Since winit doesn't use gtk on Linux, and we need gtk for
+        // the tray icon to show up, we need to spawn a thread
+        // where we initialize gtk and create the tray_icon
+
+        // Spawn GTK thread
+        std::thread::spawn(move || {
+            gtk::init().unwrap();
+            let mut tray_icon = MyTrayIcon::new();
+
+            loop {
+                // Process GTK events
+                while gtk::events_pending() {
+                    gtk::main_iteration_do(false);
+                }
+
+                // Check for new states
+                if let Ok(state) = rx.try_recv() {
+                    tray_icon.update_session_state(state.current_session_type);
+                }
+
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        });
+
+        Box::new(GtkTrayIcon::new(tx))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Box::new(MyTrayIcon::new())
+    }
+}
 
 // Events from tray (to frontend)
 #[derive(Debug, Clone)]
@@ -72,15 +197,15 @@ fn load_icon(icon_bytes: &[u8]) -> Result<tray_icon::Icon> {
     Ok(icon)
 }
 
-pub fn load_icon_connected() -> Result<tray_icon::Icon> {
+fn load_icon_connected() -> Result<tray_icon::Icon> {
     load_icon(resources::ICON_BYTES)
 }
 
-pub fn load_icon_disconnected() -> Result<tray_icon::Icon> {
+fn load_icon_disconnected() -> Result<tray_icon::Icon> {
     load_icon(resources::ICON_DISCONNECTED_BYTES)
 }
 
-pub fn make_menu(current_session: Option<String>) -> tray_icon::menu::Menu {
+fn make_menu(current_session: Option<String>) -> tray_icon::menu::Menu {
     // Create tray icon menu
     let menu = tray_icon::menu::Menu::new();
     let options_item = tray_icon::menu::MenuItem::with_id("options", "Options", true, None);
@@ -106,7 +231,7 @@ pub fn make_menu(current_session: Option<String>) -> tray_icon::menu::Menu {
     menu
 }
 
-pub fn new_tray_icon() -> TrayIcon {
+fn new_tray_icon() -> TrayIcon {
     let menu = make_menu(None);
 
     // Add menu and tooltip

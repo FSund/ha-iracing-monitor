@@ -7,8 +7,9 @@ Monitors iRacing session state and sends it to Home Assistant via MQTT.
 Requires `windres.exe` and `ar.exe` from [mingw-w64](https://www.mingw-w64.org/) to build the Windows resources (only used to set the icon).
 
 ## TODO
+- [ ] Option to "run on boot"?
 - [x] Initialize sim monitor from config file on initial startup
-- [ ] Fix tray icon updating when MQTT doesn't connect
+- [ ] Fix tray icon not updating on UserEvent on Linux. `user_event` and `update_session_state` is called, but the icon or menu does not update.
 - [x] Use proper location for config file (%APPDATA% on Windows, XDG_CONFIG_... on Linux)
 - [x] Fix double tray icons
 - [x] Quitting from tray with GUI does not work (Windows)
@@ -24,8 +25,7 @@ Requires `windres.exe` and `ar.exe` from [mingw-w64](https://www.mingw-w64.org/)
 - [x] Linux/dev-mode (that doesn't depend on running on Windows)
 - [x] Add Windows taskbar icon
 - [x] Separate main page and settings page in gui
-- [ ] Installer
-  - [ ] Run as service? Or just "run on boot" option?
+- [x] Windows installer
 
 ## License
 

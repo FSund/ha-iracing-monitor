@@ -17,6 +17,7 @@ use frontend::IracingMonitorGui;
 use futures::prelude::stream::StreamExt;
 use logging::setup_logging;
 use std::fs;
+use std::sync::mpsc;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{filter::Targets, fmt, prelude::*, Registry};
 use tray_icon::TrayIcon;
@@ -31,50 +32,13 @@ enum UserEvent {
 }
 
 struct Application {
-    tray_icon: Option<TrayIcon>,
-    session_type: Option<sim_monitor::SessionType>,
+    tray_icon: Box<dyn tray::TrayIconInterface>,
 }
 
 impl Application {
     fn new() -> Self {
         Self {
-            tray_icon: None,
-            session_type: None,
-        }
-    }
-
-    fn new_tray_icon() -> TrayIcon {
-        tray::new_tray_icon()
-    }
-
-    fn update_tray_icon(&mut self, session_type: &sim_monitor::SessionType) {
-        if let Some(tray) = self.tray_icon.as_mut() {
-            let icon = match session_type {
-                sim_monitor::SessionType::Disconnected => tray::load_icon_disconnected(),
-                _ => tray::load_icon_connected(),
-            };
-            if let Ok(icon) = icon {
-                if let Err(e) = tray.set_icon(Some(icon)) {
-                    log::warn!("Failed to set tray icon: {}", e);
-                }
-            } else {
-                log::warn!("Failed to load connected tray icon");
-            }
-        }
-    }
-
-    fn update_menu(&mut self, session_type: &sim_monitor::SessionType) {
-        if let Some(tray) = self.tray_icon.as_mut() {
-            let new_menu = tray::make_menu(Some(session_type.to_string()));
-            tray.set_menu(Some(Box::new(new_menu)));
-        }
-    }
-
-    fn update_session_state(&mut self, new_state: sim_monitor::SessionType) {
-        let old_state = self.session_type.replace(new_state.clone());
-        if old_state.as_ref() != Some(&new_state) {
-            self.update_tray_icon(&new_state);
-            self.update_menu(&new_state);
+            tray_icon: tray::create_tray_icon(),
         }
     }
 }
@@ -100,34 +64,36 @@ impl ApplicationHandler<UserEvent> for Application {
     ) {
         // We create the icon once the event loop is actually running
         // to prevent issues like https://github.com/tauri-apps/tray-icon/issues/90
-        if winit::event::StartCause::Init == cause {
-            #[cfg(not(target_os = "linux"))]
-            {
-                self.tray_icon = Some(Self::new_tray_icon());
-            }
+        // if winit::event::StartCause::Init == cause {
+        //     #[cfg(not(target_os = "linux"))]
+        //     {
+        //         self.tray_icon = Some(Self::new_tray_icon());
+        //     }
 
-            // // We have to request a redraw here to have the icon actually show up.
-            // // Winit only exposes a redraw method on the Window so we use core-foundation directly.
-            // #[cfg(target_os = "macos")]
-            // unsafe {
-            //     use objc2_core_foundation::{CFRunLoopGetMain, CFRunLoopWakeUp};
+        //     // // We have to request a redraw here to have the icon actually show up.
+        //     // // Winit only exposes a redraw method on the Window so we use core-foundation directly.
+        //     // #[cfg(target_os = "macos")]
+        //     // unsafe {
+        //     //     use objc2_core_foundation::{CFRunLoopGetMain, CFRunLoopWakeUp};
 
-            //     let rl = CFRunLoopGetMain().unwrap();
-            //     CFRunLoopWakeUp(&rl);
-            // }
-        }
+        //     //     let rl = CFRunLoopGetMain().unwrap();
+        //     //     CFRunLoopWakeUp(&rl);
+        //     // }
+        // }
     }
 
     fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
-        log::debug!("Received user event: {event:?}");
         match event {
-            UserEvent::Shutdown => {
-                event_loop.exit();
-            }
             UserEvent::SimMonitorEvent(
                 sim_monitor::Event::ConnectedToSim(state)
                 | sim_monitor::Event::DisconnectedFromSim(state),
-            ) => self.update_session_state(state.current_session_type),
+            ) => {
+                self.tray_icon.update_state(state);
+            }
+            UserEvent::Shutdown => {
+                self.tray_icon.shutdown();
+                event_loop.exit();
+            }
             _ => {}
         }
     }
@@ -137,24 +103,12 @@ impl ApplicationHandler<UserEvent> for Application {
 async fn main() -> anyhow::Result<()> {
     setup_logging().context("Failed to setup logging")?;
 
-    // Since winit doesn't use gtk on Linux, and we need gtk for
-    // the tray icon to show up, we need to spawn a thread
-    // where we initialize gtk and create the tray_icon
-    #[cfg(target_os = "linux")]
-    std::thread::spawn(|| {
-        gtk::init().unwrap();
-
-        let _tray_icon = Application::new_tray_icon();
-
-        gtk::main();
-    });
-
     tracing::info!("Starting iRacing HA Monitor");
     let config = config::get_app_config();
     if config.gui {
-        // Tray icon on Windows
-        #[cfg(not(target_os = "linux"))]
-        let _tray_icon = Application::new_tray_icon();
+        // // Tray icon on Windows
+        // #[cfg(not(target_os = "linux"))]
+        // let _tray_icon = Application::new_tray_icon();
 
         // using a daemon is overkill for a plain iced application, but might come in
         // handy when trying to implement a tray icon
@@ -181,7 +135,7 @@ async fn main() -> anyhow::Result<()> {
         let stream = Box::pin(backend::connect(Some(event_loop_proxy.clone())));
         let _stream_handle = tokio::spawn(stream.for_each(|_| futures::future::ready(())));
 
-        // run the application (only contains the tray icon)
+        // run the application
         let mut app = Application::new();
         if let Err(err) = event_loop.run_app(&mut app) {
             log::error!("App error: {:?}", err);
