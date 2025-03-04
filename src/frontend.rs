@@ -64,7 +64,7 @@ pub struct IracingMonitorGui {
     // mqtt_password: String,
     // port_is_valid: bool,
     state: State,
-    connected_to_sim: bool,
+    // connected_to_sim: bool,
     sim_state: Option<sim_monitor::SimMonitorState>,
 
     // tray_icon: Option<TrayIcon>,
@@ -92,7 +92,7 @@ impl IracingMonitorGui {
                 // mqtt_password: config.mqtt.password,
                 // port_is_valid: true,
                 state: State::WaitingForBackendConnection,
-                connected_to_sim: false,
+                // connected_to_sim: false,
                 sim_state: None,
 
                 // tray_icon: Some(new_tray_icon()), // panic, gtk has hot been initialized, call gtk::init first
@@ -183,13 +183,6 @@ impl IracingMonitorGui {
                             }
                             sim_monitor::Event::ConnectedToSim(state)
                             | sim_monitor::Event::DisconnectedFromSim(state) => {
-                                if self.connected_to_sim {
-                                    log::info!("Disconnected from game");
-                                    self.connected_to_sim = false;
-                                } else {
-                                    log::info!("Connected to game");
-                                    self.connected_to_sim = true;
-                                }
                                 self.tray_icon.update_state(state.clone());
                                 self.sim_state = Some(state);
                             }

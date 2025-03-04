@@ -12,12 +12,12 @@ use tray_icon::{menu::MenuEvent, TrayIcon, TrayIconBuilder};
 // that receives SimMonitorEvents and sends it either directly to the tray icon instance,
 // or sends it to the channel that the tray icon in the gtk thread listens to
 
-struct MyTrayIcon {
+struct SimTrayIcon {
     tray_icon: TrayIcon,
     session_type: Option<sim_monitor::SessionType>,
 }
 
-impl MyTrayIcon {
+impl SimTrayIcon {
     fn new() -> Self {
         Self {
             tray_icon: new_tray_icon(),
@@ -60,7 +60,7 @@ pub trait TrayIconInterface {
 }
 
 // Implement for MyTrayIcon (Windows/macOS)
-impl TrayIconInterface for MyTrayIcon {
+impl TrayIconInterface for SimTrayIcon {
     fn update_state(&mut self, state: sim_monitor::SimMonitorState) {
         self.update_session_state(state.current_session_type);
     }
@@ -97,7 +97,7 @@ impl TrayIconInterface for GtkTrayIcon {
 pub fn create_tray_icon() -> Box<dyn TrayIconInterface> {
     #[cfg(target_os = "linux")]
     {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::channel::<sim_monitor::SimMonitorState>();
 
         // Since winit doesn't use gtk on Linux, and we need gtk for
         // the tray icon to show up, we need to spawn a thread
@@ -106,7 +106,7 @@ pub fn create_tray_icon() -> Box<dyn TrayIconInterface> {
         // Spawn GTK thread
         std::thread::spawn(move || {
             gtk::init().unwrap();
-            let mut tray_icon = MyTrayIcon::new();
+            let mut tray_icon = SimTrayIcon::new();
 
             loop {
                 // Process GTK events
@@ -128,7 +128,7 @@ pub fn create_tray_icon() -> Box<dyn TrayIconInterface> {
 
     #[cfg(not(target_os = "linux"))]
     {
-        Box::new(MyTrayIcon::new())
+        Box::new(SimTrayIcon::new())
     }
 }
 
