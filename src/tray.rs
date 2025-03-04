@@ -8,10 +8,6 @@ use futures::stream::Stream;
 use tray_icon::menu::{MenuId, PredefinedMenuItem};
 use tray_icon::{menu::MenuEvent, TrayIcon, TrayIconBuilder};
 
-// TODO: make a common interface (a trait?) for the tray icon
-// that receives SimMonitorEvents and sends it either directly to the tray icon instance,
-// or sends it to the channel that the tray icon in the gtk thread listens to
-
 struct SimTrayIcon {
     tray_icon: TrayIcon,
     session_type: Option<sim_monitor::SessionType>,
@@ -137,28 +133,12 @@ pub fn create_tray_icon() -> Box<dyn TrayIconInterface> {
 pub enum TrayEventType {
     // IconClicked,
     MenuItemClicked(MenuId),
-    Connected(Connection),
-}
-
-// messages to tray (from frontend)
-#[derive(Debug, Clone)]
-pub enum Message {
-    Quit,
-}
-
-#[derive(Debug, Clone)]
-pub struct Connection(mpsc::Sender<Message>);
-
-impl Connection {
-    pub fn send(&mut self, message: Message) {
-        self.0.try_send(message).expect("Send message SimMonitor");
-    }
+    // Connected(Connection),
 }
 
 // Create the tray subscription
 pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
     let (tx, rx) = mpsc::channel(100);
-    let (frontend_sender, frontend_receiver) = mpsc::channel(100);
 
     // Set up the menu event handler
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
@@ -172,23 +152,7 @@ pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
         }
     }));
 
-    // Create the initial connection event stream
-    let init_stream =
-        futures::stream::once(async move { TrayEventType::Connected(Connection(frontend_sender)) });
-
-    // Convert the frontend receiver into a stream that ends on Quit message
-    let frontend_stream = frontend_receiver
-        .take_while(|msg| {
-            let continue_running = !matches!(msg, Message::Quit);
-            if !continue_running {
-                log::info!("Quitting tray icon");
-            }
-            futures::future::ready(continue_running)
-        })
-        .filter_map(|_| futures::future::ready(None));
-
-    // Merge all streams together
-    futures::stream::select(init_stream, futures::stream::select(rx, frontend_stream))
+    rx
 }
 
 fn load_icon(icon_bytes: &[u8]) -> Result<tray_icon::Icon> {

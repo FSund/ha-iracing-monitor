@@ -3,8 +3,6 @@ use crate::sim_monitor;
 use crate::tray;
 use crate::UserEvent;
 
-use config::AppConfig;
-
 use futures::prelude::sink::SinkExt;
 use futures::prelude::stream::StreamExt;
 use futures::stream::Stream;

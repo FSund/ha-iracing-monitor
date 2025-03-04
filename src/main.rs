@@ -12,15 +12,10 @@ mod resources;
 mod sim_monitor;
 mod tray;
 
-use anyhow::{Context, Result};
+use anyhow::Context;
 use frontend::IracingMonitorGui;
 use futures::prelude::stream::StreamExt;
 use logging::setup_logging;
-use std::fs;
-use std::sync::mpsc;
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{filter::Targets, fmt, prelude::*, Registry};
-use tray_icon::TrayIcon;
 use winit::{application::ApplicationHandler, event_loop::EventLoop};
 
 #[derive(Debug)]

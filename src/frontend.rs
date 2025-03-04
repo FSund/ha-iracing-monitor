@@ -25,9 +25,6 @@ pub enum Message {
     MqttPasswordChanged(String),
     ApplyMqttConfig,
 
-    // SimUpdated(sim_monitor::Event),
-    // TrayEvent(tray::TrayEventType),
-    // ConfigFileEvent(config::Event),
     BackendEvent(backend::Event),
 
     SettingsPressed,
@@ -57,22 +54,10 @@ enum Screen {
 
 pub struct IracingMonitorGui {
     config: config::AppConfig,
-
-    // mqtt_host: String,
-    // mqtt_port: String,
-    // mqtt_user: String,
-    // mqtt_password: String,
-    // port_is_valid: bool,
     state: State,
-    // connected_to_sim: bool,
     sim_state: Option<sim_monitor::SimMonitorState>,
-
-    // tray_icon: Option<TrayIcon>,
-    // tray: Option<tray::Connection>,
     tray_icon: Box<dyn tray::TrayIconInterface>,
-
     window_id: Option<window::Id>,
-
     screen: Screen,
 }
 
@@ -85,20 +70,9 @@ impl IracingMonitorGui {
         (
             Self {
                 config: config.clone(),
-
-                // mqtt_host: config.mqtt.host,
-                // mqtt_port: config.mqtt.port.to_string(),
-                // mqtt_user: config.mqtt.user,
-                // mqtt_password: config.mqtt.password,
-                // port_is_valid: true,
                 state: State::WaitingForBackendConnection,
-                // connected_to_sim: false,
                 sim_state: None,
-
-                // tray_icon: Some(new_tray_icon()), // panic, gtk has hot been initialized, call gtk::init first
-                // tray: None,
                 tray_icon: tray::create_tray_icon(),
-
                 window_id: Some(id),
                 screen: Screen::Home,
             },
@@ -217,9 +191,6 @@ impl IracingMonitorGui {
                                         return Task::none();
                                     }
                                 }
-                            }
-                            _ => {
-                                log::debug!("Can probably remove TrayEventType::Connected ??");
                             }
                         }
                     }
