@@ -128,9 +128,42 @@ async fn main() -> anyhow::Result<()> {
         let event_loop = EventLoop::<UserEvent>::with_user_event().build().unwrap();
         let event_loop_proxy = event_loop.create_proxy();
 
-        // run the connect() stream
-        let stream = Box::pin(backend::connect(Some(event_loop_proxy.clone())));
-        let _stream_handle = tokio::spawn(stream.for_each(|_| futures::future::ready(())));
+        // run the connect() stream and handle the events
+        let stream = Box::pin(backend::connect());
+        let _stream_handle = tokio::spawn(async move {
+            stream
+                .for_each(|event| async {
+                    match event {
+                        backend::Event::Sim(sim_event) => {
+                            // Send sim events to winit event loop
+                            if let Err(e) = event_loop_proxy.send_event(UserEvent::SimMonitorEvent(sim_event)) {
+                                log::warn!("Failed to send event to winit: {}", e);
+                            } else {
+                                log::debug!("Sent sim event to winit");
+                            }
+                        }
+                        backend::Event::Tray(tray_event) => {
+                            // Send quit event to winit event loop
+                            if let tray::TrayEventType::MenuItemClicked(menu_id) = tray_event.clone() {
+                                log::debug!("menu_id: {:?}", menu_id);
+                                match menu_id.0.as_str() {
+                                    "quit" => {
+                                        log::debug!("Quitting");
+                                        if let Err(e) = event_loop_proxy.send_event(UserEvent::Shutdown) {
+                                            panic!("Failed to send shutdown event to winit event loop: {}", e);
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        backend::Event::ConfigFile(_) => {
+                            // Handle config file events if needed
+                        }
+                    }
+                })
+                .await;
+        });
 
         // run the application
         let mut app = Application::new();

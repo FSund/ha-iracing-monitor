@@ -16,9 +16,7 @@ pub enum Event {
     ConfigFile(config::Event),
 }
 
-pub fn connect(
-    winit_event_loop_proxy: Option<EventLoopProxy<UserEvent>>,
-) -> impl Stream<Item = Event> {
+pub fn connect() -> impl Stream<Item = Event> {
     let config = Some(config::get_app_config());
     iced_stream::channel(100, |mut output| async move {
         // pin the streams to the stack
@@ -28,6 +26,8 @@ pub fn connect(
 
         let mut sim_monitor_connection = None;
 
+        // Don't break this loop
+        // The connection will be closed by the frontend or the winit/tray-icon event loop as needed
         loop {
             tokio::select! {
                 Some(event) = sim_events.next() => {
@@ -46,16 +46,6 @@ pub fn connect(
                         }
                     }
                     output.send(Event::Sim(event.clone())).await.unwrap();
-
-                    // forward to winit/tray icon
-                    log::debug!("Sending sim event to winit event loop");
-                    if let Some(ref event_loop_proxy) = winit_event_loop_proxy {
-                        if let Err(e) = event_loop_proxy.send_event(UserEvent::SimMonitorEvent(event)) {
-                            log::warn!("Failed to send event to winit: {}", e);
-                        } else {
-                            log::debug!("Sent sim event to winit");
-                        }
-                    }
                 }
                 Some(event) = tray_events.next() => {
                     log::debug!("Tray event: {:?}", event);
@@ -64,14 +54,6 @@ pub fn connect(
                         match menu_id.0.as_str() {
                             "quit" => {
                                 log::debug!("Quitting");
-                                if let Some(ref event_loop_proxy) = winit_event_loop_proxy {
-                                    if let Err(e) = event_loop_proxy.send_event(UserEvent::Shutdown) {
-                                        panic!("Failed to send shutdown event to winit event loop: {}", e);
-                                    }
-                                }
-                                // Don't break here, we still want to send the event to the frontend
-                                // The connection will be closed by the frontend or the winit/tray-icon event loop
-                                // break;
                             }
                             "options" => {
                                 log::debug!("Opening config file");
