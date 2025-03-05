@@ -101,9 +101,7 @@ impl IracingMonitorGui {
     }
 
     pub fn title(&self, _window_id: iced::window::Id) -> String {
-        // "IRacingMonitor - Iced".to_string()
-        // format!("IRacingMonitor {:?}", window_id)
-        "iRacingMonitor".to_string()
+        resources::APP_NAME.to_string()
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -173,17 +171,18 @@ impl IracingMonitorGui {
                     backend::Event::Tray(event) => {
                         log::info!("Tray event: {event:?}");
                         match event {
-                            tray::TrayEventType::MenuItemClicked(menu_item) => {
-                                match menu_item {
-                                    tray::MenuItem::Quit => {
-                                        log::debug!("Quitting");
-                                        return Task::done(Message::Quit);
-                                    }
-                                    tray::MenuItem::Options => {
-                                        return self.open_window();
-                                    }
+                            tray::TrayEventType::MenuItemClicked(menu_item) => match menu_item {
+                                tray::MenuItem::Quit => {
+                                    log::debug!("Quitting");
+                                    return Task::done(Message::Quit);
                                 }
-                            }
+                                tray::MenuItem::Options => {
+                                    return self.open_window();
+                                }
+                                tray::MenuItem::RunOnBoot => {
+                                    // todo!("Run on boot");
+                                }
+                            },
                         }
                     }
                 }
@@ -466,7 +465,7 @@ impl IracingMonitorGui {
         Subscription::batch(vec![
             window::close_events().map(Message::WindowClosed),
             keyboard::on_key_press(handle_hotkey),
-            Subscription::run(|| backend::connect()).map(Message::BackendEvent),
+            Subscription::run(backend::connect).map(Message::BackendEvent),
             // Subscription::run(sim_monitor::connect).map(Message::SimUpdated),
             // Subscription::run(tray::tray_subscription).map(Message::TrayEvent),
             // Subscription::run(config::watch).map(Message::ConfigFileEvent),

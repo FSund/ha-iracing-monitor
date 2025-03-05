@@ -1,13 +1,12 @@
 use crate::config;
+use crate::helpers;
 use crate::sim_monitor;
 use crate::tray;
-use crate::UserEvent;
 
 use futures::prelude::sink::SinkExt;
 use futures::prelude::stream::StreamExt;
 use futures::stream::Stream;
 use iced::stream as iced_stream;
-use winit::event_loop::EventLoopProxy;
 
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -62,6 +61,10 @@ pub fn connect() -> impl Stream<Item = Event> {
                                     Ok(()) => log::debug!("Opened settings toml"),
                                     Err(err) => log::warn!("Error opening settings toml: {}", err),
                                 }
+                            }
+                            tray::MenuItem::RunOnBoot => {
+                                // todo!("Run on boot");
+                                helpers::toggle_run_on_boot();
                             }
                         }
                     }

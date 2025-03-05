@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 
+pub static APP_NAME: &str = "iRacingMonitor";
 pub const ICON_BYTES: &[u8] = include_bytes!("../resources/icon.png");
 pub const ICON_DISCONNECTED_BYTES: &[u8] = include_bytes!("../resources/icon_disconnected.png");
 

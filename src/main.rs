@@ -18,14 +18,6 @@ use futures::prelude::stream::StreamExt;
 use logging::setup_logging;
 use winit::{application::ApplicationHandler, event_loop::EventLoop};
 
-#[derive(Debug)]
-enum UserEvent {
-    TrayIconEvent(tray_icon::TrayIconEvent),
-    MenuEvent(tray_icon::menu::MenuEvent),
-    Shutdown,
-    SimMonitorEvent(sim_monitor::Event),
-}
-
 struct Application {
     tray_icon: Box<dyn tray::TrayIconInterface>,
 }
@@ -38,7 +30,7 @@ impl Application {
     }
 }
 
-impl ApplicationHandler<UserEvent> for Application {
+impl ApplicationHandler<backend::Event> for Application {
     // required
     fn resumed(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {}
 
@@ -77,20 +69,29 @@ impl ApplicationHandler<UserEvent> for Application {
         // }
     }
 
-    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: UserEvent) {
+    fn user_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        event: backend::Event,
+    ) {
         log::debug!("Application received user event: {:?}", event);
         match event {
-            UserEvent::SimMonitorEvent(
+            backend::Event::Sim(
                 sim_monitor::Event::ConnectedToSim(state)
                 | sim_monitor::Event::DisconnectedFromSim(state),
             ) => {
                 self.tray_icon.update_state(state);
             }
-            UserEvent::Shutdown => {
-                log::info!("Shutting down tray icon and winit event loop");
-                self.tray_icon.shutdown();
-                event_loop.exit();
-            }
+            backend::Event::Tray(tray_event) => match tray_event {
+                tray::TrayEventType::MenuItemClicked(menu_item) => match menu_item {
+                    tray::MenuItem::Quit => {
+                        log::info!("Shutting down tray icon and winit event loop");
+                        self.tray_icon.shutdown();
+                        event_loop.exit();
+                    }
+                    _ => {}
+                },
+            },
             _ => {}
         }
     }
@@ -125,7 +126,9 @@ async fn main() -> anyhow::Result<()> {
         // - sim status and tray events should be sent to the frontend via messages from the backend
     } else {
         // create the winit event loop
-        let event_loop = EventLoop::<UserEvent>::with_user_event().build().unwrap();
+        let event_loop = EventLoop::<backend::Event>::with_user_event()
+            .build()
+            .unwrap();
         let event_loop_proxy = event_loop.create_proxy();
 
         // run the connect() stream and handle the events
@@ -133,27 +136,19 @@ async fn main() -> anyhow::Result<()> {
         let _stream_handle = tokio::spawn(async move {
             stream
                 .for_each(|event| async {
-                    match event {
-                        backend::Event::Sim(sim_event) => {
+                    match event.clone() {
+                        backend::Event::Sim(_sim_event) => {
                             // Send sim events to winit event loop
-                            if let Err(e) = event_loop_proxy.send_event(UserEvent::SimMonitorEvent(sim_event)) {
-                                log::warn!("Failed to send event to winit: {}", e);
+                            if let Err(e) = event_loop_proxy.send_event(event) {
+                                log::warn!("Failed to send sim event to winit: {}", e);
                             } else {
                                 log::debug!("Sent sim event to winit");
                             }
                         }
-                        backend::Event::Tray(tray_event) => {
-                            // Send quit event to winit event loop
-                            if let tray::TrayEventType::MenuItemClicked(menu_item) = tray_event {
-                                match menu_item {
-                                    tray::MenuItem::Quit => {
-                                        log::debug!("Quitting");
-                                        if let Err(e) = event_loop_proxy.send_event(UserEvent::Shutdown) {
-                                            panic!("Failed to send shutdown event to winit event loop: {}", e);
-                                        }
-                                    }
-                                    _ => {}
-                                }
+                        backend::Event::Tray(_tray_event) => {
+                            // Send to winit event loop
+                            if let Err(e) = event_loop_proxy.send_event(event) {
+                                panic!("Failed to send tray event to winit event loop: {}", e);
                             }
                         }
                         backend::Event::ConfigFile(_) => {

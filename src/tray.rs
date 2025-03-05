@@ -1,3 +1,4 @@
+use crate::helpers;
 use crate::resources;
 use crate::sim_monitor;
 
@@ -132,6 +133,7 @@ pub fn create_tray_icon() -> Box<dyn TrayIconInterface> {
 pub enum MenuItem {
     Options,
     Quit,
+    RunOnBoot,
 }
 
 impl ToString for MenuItem {
@@ -139,6 +141,7 @@ impl ToString for MenuItem {
         match self {
             MenuItem::Options => "options".to_string(),
             MenuItem::Quit => "quit".to_string(),
+            MenuItem::RunOnBoot => "run_on_boot".to_string(),
         }
     }
 }
@@ -148,6 +151,7 @@ impl MenuItem {
         match s {
             "options" => Some(MenuItem::Options),
             "quit" => Some(MenuItem::Quit),
+            "run_on_boot" => Some(MenuItem::RunOnBoot),
             _ => None,
         }
     }
@@ -201,14 +205,34 @@ fn load_icon_disconnected() -> Result<tray_icon::Icon> {
 fn make_menu(current_session: Option<String>) -> tray_icon::menu::Menu {
     // Create tray icon menu
     let menu = tray_icon::menu::Menu::new();
-    let options_item =
-        tray_icon::menu::MenuItem::with_id(MenuItem::Options.to_string(), "Options", true, None);
+    let options_item = tray_icon::menu::MenuItem::with_id(
+        MenuItem::Options.to_string(),
+        "Open config file",
+        true,
+        None,
+    );
+
     let quit_item =
         tray_icon::menu::MenuItem::with_id(MenuItem::Quit.to_string(), "Quit", true, None);
 
     // Add options item first
     menu.append_items(&[&options_item, &PredefinedMenuItem::separator()])
         .expect("Failed to append options item");
+
+    if let Ok(run_on_boot) = helpers::get_run_on_startup_state() {
+        let run_on_boot_item = tray_icon::menu::CheckMenuItem::with_id(
+            MenuItem::RunOnBoot.to_string(),
+            "Run on boot",
+            true,
+            run_on_boot,
+            None,
+        );
+        menu.append_items(&[&run_on_boot_item])
+            .expect("Failed to append run on boot item");
+    }
+
+    menu.append_items(&[&PredefinedMenuItem::separator()])
+        .expect("Failed to append separator");
 
     // Add session info in the middle if available
     if let Some(session) = current_session {
@@ -232,7 +256,7 @@ fn new_tray_icon() -> TrayIcon {
     // Add menu and tooltip
     let mut builder = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_tooltip("iRacing HA Monitor");
+        .with_tooltip(resources::APP_NAME);
 
     // Add icon
     if let Ok(icon) = load_icon_disconnected() {
