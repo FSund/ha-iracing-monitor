@@ -144,10 +144,9 @@ async fn main() -> anyhow::Result<()> {
                         }
                         backend::Event::Tray(tray_event) => {
                             // Send quit event to winit event loop
-                            if let tray::TrayEventType::MenuItemClicked(menu_id) = tray_event.clone() {
-                                log::debug!("menu_id: {:?}", menu_id);
-                                match menu_id.0.as_str() {
-                                    "quit" => {
+                            if let tray::TrayEventType::MenuItemClicked(menu_item) = tray_event {
+                                match menu_item {
+                                    tray::MenuItem::Quit => {
                                         log::debug!("Quitting");
                                         if let Err(e) = event_loop_proxy.send_event(UserEvent::Shutdown) {
                                             panic!("Failed to send shutdown event to winit event loop: {}", e);

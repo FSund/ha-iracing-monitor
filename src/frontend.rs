@@ -173,22 +173,14 @@ impl IracingMonitorGui {
                     backend::Event::Tray(event) => {
                         log::info!("Tray event: {event:?}");
                         match event {
-                            tray::TrayEventType::MenuItemClicked(id) => {
-                                // if id.0 == "quit" {
-                                //     Task::done(Message::Quit)
-                                // } else {
-                                //     Task::none()
-                                // }
-                                match id.0.as_str() {
-                                    // TODO: matching on strings is bad and you should feel bad
-                                    "quit" => {
+                            tray::TrayEventType::MenuItemClicked(menu_item) => {
+                                match menu_item {
+                                    tray::MenuItem::Quit => {
                                         log::debug!("Quitting");
                                         return Task::done(Message::Quit);
                                     }
-                                    "options" => return self.open_window(),
-                                    _ => {
-                                        log::warn!("Unknown tray menu item clicked: {}", id.0);
-                                        return Task::none();
+                                    tray::MenuItem::Options => {
+                                        return self.open_window();
                                     }
                                 }
                             }

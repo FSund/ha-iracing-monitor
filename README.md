@@ -9,7 +9,7 @@ Uses the [winresource](https://crates.io/crates/winresource) crate to set the ic
 Uses the [Wix Toolset](https://github.com/wixtoolset/) to build the Windows installer via Github Actions.
 
 ## TODO
-- [ ] Move winit event loop messaging into main
+- [x] Move winit event loop messaging into main
 - [ ] Option to "run on boot" on Windows (use registry)
 - [ ] Consider [cargo-bundle](https://crates.io/crates/cargo-bundle/0.6.1) for creating Linux and Windows installers, adding icons etc.
 - [x] Initialize sim monitor from config file on initial startup

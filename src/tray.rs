@@ -128,12 +128,35 @@ pub fn create_tray_icon() -> Box<dyn TrayIconInterface> {
     }
 }
 
-// Events from tray (to frontend)
+#[derive(Debug, Clone, PartialEq)]
+pub enum MenuItem {
+    Options,
+    Quit,
+}
+
+impl ToString for MenuItem {
+    fn to_string(&self) -> String {
+        match self {
+            MenuItem::Options => "options".to_string(),
+            MenuItem::Quit => "quit".to_string(),
+        }
+    }
+}
+
+impl MenuItem {
+    fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "options" => Some(MenuItem::Options),
+            "quit" => Some(MenuItem::Quit),
+            _ => None,
+        }
+    }
+}
+
+// Events from the tray icon
 #[derive(Debug, Clone)]
 pub enum TrayEventType {
-    // IconClicked,
-    MenuItemClicked(MenuId),
-    // Connected(Connection),
+    MenuItemClicked(MenuItem),
 }
 
 // Create the tray subscription
@@ -143,12 +166,18 @@ pub fn tray_subscription() -> impl Stream<Item = TrayEventType> {
     // Set up the menu event handler
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let mut sender = tx.clone();
-        let message = TrayEventType::MenuItemClicked(event.id.clone());
 
-        log::debug!("Sending menu event {event:?} to channel");
-        match sender.try_send(message) {
-            Ok(()) => log::debug!("Menu event sent to channel"),
-            Err(err) => log::error!("Failed to send menu event to channel: {}", err),
+        // Convert the menu ID to our custom MenuItem enum
+        if let Some(menu_item) = MenuItem::from_str(&event.id.0) {
+            let message = TrayEventType::MenuItemClicked(menu_item);
+
+            log::debug!("Sending menu event {event:?} to channel");
+            match sender.try_send(message) {
+                Ok(()) => log::debug!("Menu event sent to channel"),
+                Err(err) => log::error!("Failed to send menu event to channel: {}", err),
+            }
+        } else {
+            log::warn!("Unknown menu item ID: {}", event.id.0);
         }
     }));
 
@@ -172,8 +201,10 @@ fn load_icon_disconnected() -> Result<tray_icon::Icon> {
 fn make_menu(current_session: Option<String>) -> tray_icon::menu::Menu {
     // Create tray icon menu
     let menu = tray_icon::menu::Menu::new();
-    let options_item = tray_icon::menu::MenuItem::with_id("options", "Options", true, None);
-    let quit_item = tray_icon::menu::MenuItem::with_id("quit", "Quit", true, None);
+    let options_item =
+        tray_icon::menu::MenuItem::with_id(MenuItem::Options.to_string(), "Options", true, None);
+    let quit_item =
+        tray_icon::menu::MenuItem::with_id(MenuItem::Quit.to_string(), "Quit", true, None);
 
     // Add options item first
     menu.append_items(&[&options_item, &PredefinedMenuItem::separator()])

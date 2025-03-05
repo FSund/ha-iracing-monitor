@@ -49,22 +49,19 @@ pub fn connect() -> impl Stream<Item = Event> {
                 }
                 Some(event) = tray_events.next() => {
                     log::debug!("Tray event: {:?}", event);
-                    if let tray::TrayEventType::MenuItemClicked(menu_id) = event.clone() {
-                        log::debug!("menu_id: {:?}", menu_id);
-                        match menu_id.0.as_str() {
-                            "quit" => {
+                    if let tray::TrayEventType::MenuItemClicked(menu_item) = event.clone() {
+                        log::debug!("menu item: {:?}", menu_item);
+                        match menu_item {
+                            tray::MenuItem::Quit => {
                                 log::debug!("Quitting");
                             }
-                            "options" => {
+                            tray::MenuItem::Options => {
                                 log::debug!("Opening config file");
                                 let config_file = config::get_config_path();
                                 match open::that(config_file) {
                                     Ok(()) => log::debug!("Opened settings toml"),
                                     Err(err) => log::warn!("Error opening settings toml: {}", err),
                                 }
-                            }
-                            _ => {
-                                log::debug!("Unknown menu item clicked: {:?}", menu_id);
                             }
                         }
                     }
