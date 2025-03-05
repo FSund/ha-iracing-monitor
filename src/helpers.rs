@@ -5,7 +5,7 @@ use directories::ProjectDirs;
 use std::io;
 // use std::path::PathBuf;
 
-#[cfg(windows)]
+#[cfg(target_os = "windows")]
 use winreg::{
     enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE},
     RegKey,
@@ -39,7 +39,7 @@ pub fn get_project_dir() -> ProjectDirs {
 // }
 
 pub fn set_run_at_startup(enable: bool, exe_path: &str) -> io::Result<()> {
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let run_key = hkcu
@@ -65,7 +65,7 @@ pub fn set_run_at_startup(enable: bool, exe_path: &str) -> io::Result<()> {
 }
 
 pub fn get_run_on_startup_state() -> io::Result<bool> {
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let run_key = hkcu
@@ -82,13 +82,13 @@ pub fn get_run_on_startup_state() -> io::Result<bool> {
         }
     }
 
-    #[cfg(not(windows))]
-    false
+    #[cfg(not(target_os = "windows"))]
+    Ok(false)
 }
 
 // Then in your settings handler:
 pub fn toggle_run_on_boot() {
-    #[cfg(windows)]
+    #[cfg(target_os = "windows")]
     {
         let exe_path = std::env::current_exe()
             .unwrap()
