@@ -4,12 +4,16 @@ Monitors iRacing session state and sends it to Home Assistant via MQTT.
 
 ## Requirements
 
-Requires `windres.exe` and `ar.exe` from [mingw-w64](https://www.mingw-w64.org/) to build the Windows resources (only used to set the icon).
+Uses the [winresource](https://crates.io/crates/winresource) crate to set the icon for the executable, which requires `windres.exe` and `ar.exe` from [mingw-w64](https://www.mingw-w64.org/) (this is probably not required when we use the Wix Toolset).
+
+Uses the [Wix Toolset](https://github.com/wixtoolset/) to build the Windows installer via Github Actions.
 
 ## TODO
-- [ ] Option to "run on boot"?
+- [ ] Move winit event loop messaging into main
+- [ ] Option to "run on boot" on Windows (use registry)
+- [ ] Consider [cargo-bundle](https://crates.io/crates/cargo-bundle/0.6.1) for creating Linux and Windows installers, adding icons etc.
 - [x] Initialize sim monitor from config file on initial startup
-- [ ] Fix tray icon not updating on UserEvent on Linux. `user_event` and `update_session_state` is called, but the icon or menu does not update.
+- [x] Fix tray icon not updating on UserEvent on Linux. `user_event` and `update_session_state` is called, but the icon or menu does not update.
 - [x] Use proper location for config file (%APPDATA% on Windows, XDG_CONFIG_... on Linux)
 - [x] Fix double tray icons
 - [x] Quitting from tray with GUI does not work (Windows)
