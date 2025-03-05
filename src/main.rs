@@ -8,6 +8,7 @@ mod frontend;
 mod helpers;
 mod iracing_client;
 mod logging;
+mod platform;
 mod resources;
 mod sim_monitor;
 mod tray;
