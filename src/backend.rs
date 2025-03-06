@@ -1,6 +1,5 @@
 use crate::config;
 use crate::helpers;
-use crate::platform;
 use crate::sim_monitor;
 use crate::tray;
 
@@ -24,7 +23,7 @@ pub fn connect() -> impl Stream<Item = Event> {
         let mut sim_events = Box::pin(sim_monitor::connect(config.clone()));
         let mut tray_events = Box::pin(tray::tray_subscription());
         let mut config_events = Box::pin(config::watch());
-        let mut shutdown_events = Box::pin(platform::shutdown_signals());
+        let mut shutdown_events = Box::pin(helpers::shutdown_signals());
 
         let mut sim_monitor_connection = None;
 

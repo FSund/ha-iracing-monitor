@@ -29,4 +29,6 @@ pub fn get_project_dir() -> ProjectDirs {
 // }
 
 // Re-export platform-specific functions
-pub use platform::{get_run_on_startup_state, set_run_at_startup, toggle_run_on_boot};
+pub use platform::{
+    get_run_on_startup_state, set_run_at_startup, shutdown_signals, toggle_run_on_boot,
+};

@@ -2,7 +2,6 @@ use crate::backend::Event;
 use crate::resources;
 
 use futures::prelude::sink::SinkExt;
-use futures::prelude::stream::StreamExt;
 use futures::stream::Stream;
 use iced::stream as iced_stream;
 use std::io;
