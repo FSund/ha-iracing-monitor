@@ -1,5 +1,4 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" 
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
    <Package Name="iRacingMonitor" UpgradeCode="6b9a10ae-847e-4a99-87d6-382b4fa7de16" Language="1033" Codepage="1252" Version="0.4.2" Manufacturer="iRacingMonitor" InstallerVersion="200">
       <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
       <Icon Id="iRacingMonitorIco" SourceFile=".\resources\windows\icon.ico" />
@@ -28,11 +27,6 @@
             <RegistryValue Root="HKCU" Key="Software\Microsoft\iRacingMonitor" Name="installed" Type="integer" Value="1" KeyPath="yes" />
          </Component>
       </DirectoryRef>
-
-      <!-- Add the WixCloseApplications custom action -->
-      <InstallExecuteSequence>
-         <Custom Action="WixCloseApplications" Before="InstallValidate" />
-      </InstallExecuteSequence>
 
       <StandardDirectory Id="ProgramFiles64Folder">
          <Directory Id="iRacingMonitorProgramFiles" Name="iRacingMonitor" />
