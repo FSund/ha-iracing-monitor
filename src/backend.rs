@@ -1,5 +1,6 @@
 use crate::config;
 use crate::helpers;
+use crate::platform;
 use crate::sim_monitor;
 use crate::tray;
 
@@ -13,6 +14,7 @@ pub enum Event {
     Sim(sim_monitor::Event),
     Tray(tray::TrayEventType),
     ConfigFile(config::Event),
+    Shutdown,
 }
 
 pub fn connect() -> impl Stream<Item = Event> {
@@ -22,6 +24,7 @@ pub fn connect() -> impl Stream<Item = Event> {
         let mut sim_events = Box::pin(sim_monitor::connect(config.clone()));
         let mut tray_events = Box::pin(tray::tray_subscription());
         let mut config_events = Box::pin(config::watch());
+        let mut shutdown_events = Box::pin(platform::shutdown_signals());
 
         let mut sim_monitor_connection = None;
 
@@ -92,6 +95,11 @@ pub fn connect() -> impl Stream<Item = Event> {
                         }
                     }
                     output.send(Event::ConfigFile(event)).await.unwrap();
+                }
+                Some(event) = shutdown_events.next() => {
+                    log::info!("Received shutdown signal");
+                    output.send(event).await.unwrap();
+                    // break; // Exit the loop on shutdown
                 }
             }
         }

@@ -93,6 +93,10 @@ impl ApplicationHandler<backend::Event> for Application {
                     _ => {}
                 },
             },
+            backend::Event::Shutdown => {
+                self.tray_icon.shutdown();
+                event_loop.exit();
+            }
             _ => {}
         }
     }
@@ -154,6 +158,11 @@ async fn main() -> anyhow::Result<()> {
                         }
                         backend::Event::ConfigFile(_) => {
                             // Handle config file events if needed
+                        }
+                        backend::Event::Shutdown => {
+                            if let Err(e) = event_loop_proxy.send_event(event) {
+                                panic!("Failed to send shutdown event to winit event loop: {}", e);
+                            }
                         }
                     }
                 })

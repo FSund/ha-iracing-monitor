@@ -1,5 +1,10 @@
+use crate::backend::Event;
 use crate::resources;
 
+use futures::prelude::sink::SinkExt;
+use futures::prelude::stream::StreamExt;
+use futures::stream::Stream;
+use iced::stream as iced_stream;
 use std::io;
 use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 use winreg::RegKey;
@@ -62,4 +67,42 @@ pub fn toggle_run_on_boot() {
             log::warn!("Unable to get current run on startup state: {e}");
         }
     }
+}
+
+pub fn shutdown_signals() -> impl Stream<Item = Event> {
+    iced_stream::channel(100, |mut output| async move {
+        let mut ctrl_c = tokio::signal::windows::ctrl_c().unwrap();
+        let mut ctrl_break = tokio::signal::windows::ctrl_break().unwrap();
+        let mut ctrl_close = tokio::signal::windows::ctrl_close().unwrap();
+        let mut ctrl_shutdown = tokio::signal::windows::ctrl_shutdown().unwrap();
+
+        loop {
+            tokio::select! {
+                result = ctrl_c.recv() => {
+                    if result.is_some() {
+                        log::info!("Received Ctrl+C signal");
+                        let _ = output.send(Event::Shutdown).await;
+                    }
+                }
+                result = ctrl_break.recv() => {
+                    if result.is_some() {
+                        log::info!("Received Ctrl+Break signal");
+                        let _ = output.send(Event::Shutdown).await;
+                    }
+                }
+                result = ctrl_close.recv() => {
+                    if result.is_some() {
+                        log::info!("Received Close signal");
+                        let _ = output.send(Event::Shutdown).await;
+                    }
+                }
+                result = ctrl_shutdown.recv() => {
+                    if result.is_some() {
+                        log::info!("Received Shutdown signal");
+                        let _ = output.send(Event::Shutdown).await;
+                    }
+                }
+            }
+        }
+    })
 }

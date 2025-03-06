@@ -185,6 +185,9 @@ impl IracingMonitorGui {
                             },
                         }
                     }
+                    backend::Event::Shutdown => {
+                        return Task::done(Message::Quit);
+                    }
                 }
             }
             Message::SettingsPressed => {
