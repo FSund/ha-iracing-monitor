@@ -466,9 +466,6 @@ impl IracingMonitorGui {
             window::close_events().map(Message::WindowClosed),
             keyboard::on_key_press(handle_hotkey),
             Subscription::run(backend::connect).map(Message::BackendEvent),
-            // Subscription::run(sim_monitor::connect).map(Message::SimUpdated),
-            // Subscription::run(tray::tray_subscription).map(Message::TrayEvent),
-            // Subscription::run(config::watch).map(Message::ConfigFileEvent),
         ])
     }
 }

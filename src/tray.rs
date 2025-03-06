@@ -4,9 +4,8 @@ use crate::sim_monitor;
 
 use anyhow::Result;
 use futures::channel::mpsc;
-use futures::prelude::stream::StreamExt;
 use futures::stream::Stream;
-use tray_icon::menu::{MenuId, PredefinedMenuItem};
+use tray_icon::menu::{AboutMetadata, PredefinedMenuItem};
 use tray_icon::{menu::MenuEvent, TrayIcon, TrayIconBuilder};
 
 struct SimTrayIcon {
@@ -215,10 +214,11 @@ fn make_menu(current_session: Option<String>) -> tray_icon::menu::Menu {
     let quit_item =
         tray_icon::menu::MenuItem::with_id(MenuItem::Quit.to_string(), "Quit", true, None);
 
-    // Add options item first
-    menu.append_items(&[&options_item, &PredefinedMenuItem::separator()])
+    // Add options item
+    menu.append_items(&[&options_item])
         .expect("Failed to append options item");
 
+    // Run on boot checkbox
     if let Ok(run_on_boot) = helpers::get_run_on_startup_state() {
         let run_on_boot_item = tray_icon::menu::CheckMenuItem::with_id(
             MenuItem::RunOnBoot.to_string(),
@@ -231,6 +231,7 @@ fn make_menu(current_session: Option<String>) -> tray_icon::menu::Menu {
             .expect("Failed to append run on boot item");
     }
 
+    // Separator
     menu.append_items(&[&PredefinedMenuItem::separator()])
         .expect("Failed to append separator");
 
@@ -242,6 +243,39 @@ fn make_menu(current_session: Option<String>) -> tray_icon::menu::Menu {
         ])
         .expect("Failed to append session info");
     }
+
+    // About
+    let icon = match resources::load_as_rgba(resources::ICON_BYTES) {
+        Ok(pixels) => {
+            match tray_icon::menu::Icon::from_rgba(pixels.to_vec(), pixels.width(), pixels.height())
+            {
+                Ok(icon) => Some(icon),
+                Err(_) => {
+                    log::warn!("Loading icon failed");
+                    None
+                }
+            }
+        }
+        Err(_) => {
+            log::warn!("Loading icon failed 2");
+            None
+        }
+    };
+    let version = env!("CARGO_PKG_VERSION").to_string();
+    menu.append_items(&[
+        &PredefinedMenuItem::about(
+            None,
+            Some(AboutMetadata {
+                name: Some(resources::APP_NAME.to_string()),
+                authors: Some(vec!["Filip Sund".to_string()]),
+                icon,
+                version: Some(version.clone()),
+                ..Default::default()
+            }),
+        ),
+        &tray_icon::menu::MenuItem::new(format!("Version {version}"), false, None),
+    ])
+    .expect("Failed to add \"about\" menu item");
 
     // Add quit item last
     menu.append_items(&[&quit_item])
