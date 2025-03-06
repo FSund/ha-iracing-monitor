@@ -1,6 +1,5 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" 
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui" 
-     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
    <Package Name="iRacingMonitor" UpgradeCode="6b9a10ae-847e-4a99-87d6-382b4fa7de16" Language="1033" Codepage="1252" Version="0.4.2" Manufacturer="iRacingMonitor" InstallerVersion="200">
       <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
       <Icon Id="iRacingMonitorIco" SourceFile=".\resources\windows\icon.ico" />
@@ -8,15 +7,6 @@
       <Property Id="ARPPRODUCTICON" Value="iRacingMonitorIco" />
       <MediaTemplate EmbedCab="yes" />
       <ui:WixUI Id="WixUI_Minimal" />
-      
-      <!-- Add CloseApplication element to allow forced termination -->
-      <util:CloseApplication Id="CloseIRacingMonitor" 
-                           Target="iracing-ha-monitor.exe" 
-                           CloseMessage="yes"
-                           ElevatedCloseMessage="yes"
-                           RebootPrompt="no"
-                           TerminateProcess="yes"
-                           Timeout="5" />
 
       <Feature Id="ProductFeature" Title="ConsoleApp" Level="1">
          <ComponentRef Id="iRacingMonitorExe" />
