@@ -16,6 +16,7 @@ futures = "0.3.31"
 iced = { version = "0.13.1", features = ["tokio", "image"] }
 iced_aw = { version = "0.11.0", features = ["number_input"] }
 image = "0.25.5"
+lazy_static = "1.5.0"
 #iracing = "0.4.1"
 #iracing-telem = "0.2.1"
 log = "0.4.22"

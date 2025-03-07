@@ -2,6 +2,7 @@ use crate::config;
 use crate::helpers;
 use crate::sim_monitor;
 use crate::tray;
+use crate::logging;
 
 use futures::prelude::sink::SinkExt;
 use futures::prelude::stream::StreamExt;
@@ -56,7 +57,7 @@ pub fn connect() -> impl Stream<Item = Event> {
                             tray::MenuItem::Quit => {
                                 log::debug!("Quitting");
                             }
-                            tray::MenuItem::Options => {
+                            tray::MenuItem::ConfigFile => {
                                 log::debug!("Opening config file");
                                 let config_file = config::get_config_path();
                                 match open::that(config_file) {
@@ -67,6 +68,19 @@ pub fn connect() -> impl Stream<Item = Event> {
                             tray::MenuItem::RunOnBoot => {
                                 // todo!("Run on boot");
                                 helpers::toggle_run_on_boot();
+                            }
+                            tray::MenuItem::LogDir => {
+                                if let Ok(log_dir) = logging::get_log_dir() {
+                                    match open::that(log_dir) {
+                                        Ok(()) => log::debug!("Opened log dir"),
+                                        Err(err) => log::warn!("Error opening log dir: {}", err),
+                                    }
+                                } else {
+                                    log::warn!("Error getting log dir");
+                                }
+                            }
+                            tray::MenuItem::Settings => {
+                                // no-op in backend
                             }
                         }
                     }

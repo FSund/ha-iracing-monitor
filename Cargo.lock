@@ -2580,6 +2580,7 @@ dependencies = [
  "iced",
  "iced_aw",
  "image 0.25.5",
+ "lazy_static",
  "log",
  "notify",
  "open",

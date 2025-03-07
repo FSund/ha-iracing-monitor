@@ -176,11 +176,11 @@ impl IracingMonitorGui {
                                     log::debug!("Quitting");
                                     return Task::done(Message::Quit);
                                 }
-                                tray::MenuItem::Options => {
+                                tray::MenuItem::Settings => {
                                     return self.open_window();
                                 }
-                                tray::MenuItem::RunOnBoot => {
-                                    // todo!("Run on boot");
+                                tray::MenuItem::LogDir | tray::MenuItem::ConfigFile | tray::MenuItem::RunOnBoot => {
+                                    // handled by backend
                                 }
                             },
                         }

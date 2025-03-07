@@ -130,7 +130,9 @@ pub fn create_tray_icon() -> Box<dyn TrayIconInterface> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MenuItem {
-    Options,
+    Settings,
+    ConfigFile,
+    LogDir,
     Quit,
     RunOnBoot,
 }
@@ -138,7 +140,9 @@ pub enum MenuItem {
 impl ToString for MenuItem {
     fn to_string(&self) -> String {
         match self {
-            MenuItem::Options => "options".to_string(),
+            MenuItem::Settings => "settings".to_string(),
+            MenuItem::ConfigFile => "config_file".to_string(),
+            MenuItem::LogDir => "log_dir".to_string(),
             MenuItem::Quit => "quit".to_string(),
             MenuItem::RunOnBoot => "run_on_boot".to_string(),
         }
@@ -148,7 +152,9 @@ impl ToString for MenuItem {
 impl MenuItem {
     fn from_str(s: &str) -> Option<Self> {
         match s {
-            "options" => Some(MenuItem::Options),
+            "settings" => Some(MenuItem::Settings),
+            "config_file" => Some(MenuItem::ConfigFile),
+            "log_dir" => Some(MenuItem::LogDir),
             "quit" => Some(MenuItem::Quit),
             "run_on_boot" => Some(MenuItem::RunOnBoot),
             _ => None,
@@ -204,19 +210,24 @@ fn load_icon_disconnected() -> Result<tray_icon::Icon> {
 fn make_menu(current_session: Option<String>) -> tray_icon::menu::Menu {
     // Create tray icon menu
     let menu = tray_icon::menu::Menu::new();
-    let options_item = tray_icon::menu::MenuItem::with_id(
-        MenuItem::Options.to_string(),
+
+    // Options
+    let config_file_item = tray_icon::menu::MenuItem::with_id(
+        MenuItem::ConfigFile.to_string(),
         "Open config file",
         true,
         None,
     );
+    menu.append_items(&[&config_file_item]);
 
-    let quit_item =
-        tray_icon::menu::MenuItem::with_id(MenuItem::Quit.to_string(), "Quit", true, None);
-
-    // Add options item
-    menu.append_items(&[&options_item])
-        .expect("Failed to append options item");
+    menu.append_items(&[
+        &tray_icon::menu::MenuItem::with_id(
+            MenuItem::LogDir.to_string(),
+            "Open logs dir",
+            true,
+            None,
+        ),
+    ]);
 
     // Run on boot checkbox
     if let Ok(run_on_boot) = helpers::get_run_on_startup_state() {
@@ -277,7 +288,9 @@ fn make_menu(current_session: Option<String>) -> tray_icon::menu::Menu {
     ])
     .expect("Failed to add \"about\" menu item");
 
-    // Add quit item last
+    // Quit
+    let quit_item =
+        tray_icon::menu::MenuItem::with_id(MenuItem::Quit.to_string(), "Quit", true, None);
     menu.append_items(&[&quit_item])
         .expect("Failed to append quit item");
 
