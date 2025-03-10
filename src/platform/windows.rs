@@ -3,7 +3,7 @@ use crate::resources;
 
 use futures::prelude::sink::SinkExt;
 use futures::stream::Stream;
-use iced::stream as iced_stream;
+use iced_futures::stream as iced_stream;
 use std::io;
 use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 use winreg::RegKey;

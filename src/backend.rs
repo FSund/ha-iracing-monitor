@@ -1,13 +1,13 @@
 use crate::config;
 use crate::helpers;
+use crate::logging;
 use crate::sim_monitor;
 use crate::tray;
-use crate::logging;
 
 use futures::prelude::sink::SinkExt;
 use futures::prelude::stream::StreamExt;
 use futures::stream::Stream;
-use iced::stream as iced_stream;
+use iced_futures::stream as iced_stream;
 
 #[derive(Debug, Clone)]
 pub enum Event {

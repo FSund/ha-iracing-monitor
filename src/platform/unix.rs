@@ -1,7 +1,7 @@
 use crate::backend::Event;
 
 use futures::stream::Stream;
-use iced::stream as iced_stream;
+use iced_futures::stream as iced_stream;
 use std::io;
 
 pub fn set_run_at_startup(_enable: bool, _exe_path: &str) -> io::Result<()> {

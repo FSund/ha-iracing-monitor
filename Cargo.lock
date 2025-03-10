@@ -2579,6 +2579,7 @@ dependencies = [
  "gtk",
  "iced",
  "iced_aw",
+ "iced_futures",
  "image 0.25.5",
  "lazy_static",
  "log",

@@ -8,7 +8,7 @@ use futures::channel::mpsc;
 use futures::prelude::sink::SinkExt;
 use futures::prelude::stream::StreamExt;
 use futures::stream::Stream;
-use iced::stream as iced_stream;
+use iced_futures::stream as iced_stream;
 use iracing_client::SimClient;
 use rumqttc::{AsyncClient, MqttOptions, QoS};
 use serde::{Deserialize, Serialize};

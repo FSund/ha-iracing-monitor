@@ -21,7 +21,7 @@ impl SimTrayIcon {
         }
     }
 
-    fn update_tray_icon(&mut self, session_type: &sim_monitor::SessionType) {
+    fn update_icon(&mut self, session_type: &sim_monitor::SessionType) {
         let icon = match session_type {
             sim_monitor::SessionType::Disconnected => load_icon_disconnected(),
             _ => load_icon_connected(),
@@ -44,7 +44,7 @@ impl SimTrayIcon {
         let old_state = self.session_type.replace(new_state.clone());
         if old_state.as_ref() != Some(&new_state) {
             log::debug!("Received new session state: {:?}", new_state);
-            self.update_tray_icon(&new_state);
+            self.update_icon(&new_state);
             self.update_menu(&new_state);
         }
     }
@@ -211,23 +211,37 @@ fn make_menu(current_session: Option<String>) -> tray_icon::menu::Menu {
     // Create tray icon menu
     let menu = tray_icon::menu::Menu::new();
 
-    // Options
-    let config_file_item = tray_icon::menu::MenuItem::with_id(
-        MenuItem::ConfigFile.to_string(),
-        "Open config file",
-        true,
-        None,
-    );
-    menu.append_items(&[&config_file_item]);
-
-    menu.append_items(&[
-        &tray_icon::menu::MenuItem::with_id(
-            MenuItem::LogDir.to_string(),
-            "Open logs dir",
+    #[cfg(feature = "iced_gui")]
+    {
+        let settings_gui_item = tray_icon::menu::MenuItem::with_id(
+            MenuItem::Settings.to_string(),
+            "Open settings GUI",
             true,
             None,
-        ),
-    ]);
+        );
+        menu.append_items(&[&settings_gui_item])
+            .expect("Failed to append config file item");
+    }
+
+    #[cfg(not(feature = "iced_gui"))]
+    {
+        let config_file_item = tray_icon::menu::MenuItem::with_id(
+            MenuItem::ConfigFile.to_string(),
+            "Open config file",
+            true,
+            None,
+        );
+        menu.append_items(&[&config_file_item])
+            .expect("Failed to append config file item");
+    }
+
+    menu.append_items(&[&tray_icon::menu::MenuItem::with_id(
+        MenuItem::LogDir.to_string(),
+        "Open logs dir",
+        true,
+        None,
+    )])
+    .expect("Failed to append logs dir item");
 
     // Run on boot checkbox
     if let Ok(run_on_boot) = helpers::get_run_on_startup_state() {

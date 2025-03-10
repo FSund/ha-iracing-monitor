@@ -5,6 +5,9 @@ license = "MIT OR Apache-2.0"
 edition = "2021"
 build = "build.rs"
 
+[features]
+iced_gui = ["dep:iced", "dep:iced_aw"]
+
 [dependencies]
 anyhow = "1.0.95"
 async-trait = "0.1.85"
@@ -13,8 +16,9 @@ config = { version = "0.15.6", features = ["toml"] }
 directories = "6.0.0"
 env_logger = "0.11.6"
 futures = "0.3.31"
-iced = { version = "0.13.1", features = ["tokio", "image"] }
-iced_aw = { version = "0.11.0", features = ["number_input"] }
+iced = { version = "0.13.1", features = ["tokio", "image"], optional = true  }
+iced_aw = { version = "0.11.0", features = ["number_input"], optional = true  }
+iced_futures = "0.13.2"
 image = "0.25.5"
 lazy_static = "1.5.0"
 #iracing = "0.4.1"

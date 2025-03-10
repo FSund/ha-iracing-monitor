@@ -4,7 +4,6 @@
 
 mod backend;
 mod config;
-mod frontend;
 mod helpers;
 mod iracing_client;
 mod logging;
@@ -13,20 +12,29 @@ mod resources;
 mod sim_monitor;
 mod tray;
 
+#[cfg(feature = "iced_gui")]
+mod frontend;
+
 use anyhow::Context;
-use frontend::IracingMonitorGui;
 use futures::prelude::stream::StreamExt;
 use logging::setup_logging;
 use winit::{application::ApplicationHandler, event_loop::EventLoop};
 
+#[cfg(feature = "iced_gui")]
+use frontend::IracingMonitorGui;
+
 struct Application {
     tray_icon: Box<dyn tray::TrayIconInterface>,
+    // Store runtime reference to keep it alive
+    #[allow(dead_code)]
+    runtime: tokio::runtime::Runtime,
 }
 
 impl Application {
-    fn new() -> Self {
+    fn new(runtime: tokio::runtime::Runtime) -> Self {
         Self {
             tray_icon: tray::create_tray_icon(),
+            runtime,
         }
     }
 }
@@ -48,7 +56,7 @@ impl ApplicationHandler<backend::Event> for Application {
     fn new_events(
         &mut self,
         _event_loop: &winit::event_loop::ActiveEventLoop,
-        cause: winit::event::StartCause,
+        _cause: winit::event::StartCause,
     ) {
         // We create the icon once the event loop is actually running
         // to prevent issues like https://github.com/tauri-apps/tray-icon/issues/90
@@ -102,13 +110,67 @@ impl ApplicationHandler<backend::Event> for Application {
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    setup_logging().context("Failed to setup logging")?;
+fn run_application() -> anyhow::Result<()> {
+    // Create a tokio runtime
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("Failed to create Tokio runtime")?;
 
+    // create the winit event loop
+    let event_loop = EventLoop::<backend::Event>::with_user_event()
+        .build()
+        .unwrap();
+    let event_loop_proxy = event_loop.create_proxy();
+
+    // run the connect() stream and handle the events
+    let stream = Box::pin(backend::connect());
+    runtime.spawn(async move {
+        stream
+            .for_each(|event| async {
+                match event.clone() {
+                    backend::Event::Sim(_sim_event) => {
+                        // Send sim events to winit event loop
+                        if let Err(e) = event_loop_proxy.send_event(event) {
+                            log::warn!("Failed to send sim event to winit: {}", e);
+                        } else {
+                            log::debug!("Sent sim event to winit");
+                        }
+                    }
+                    backend::Event::Tray(_tray_event) => {
+                        // Send to winit event loop
+                        if let Err(e) = event_loop_proxy.send_event(event) {
+                            panic!("Failed to send tray event to winit event loop: {}", e);
+                        }
+                    }
+                    backend::Event::ConfigFile(_) => {
+                        // Handle config file events if needed
+                    }
+                    backend::Event::Shutdown => {
+                        if let Err(e) = event_loop_proxy.send_event(event) {
+                            panic!("Failed to send shutdown event to winit event loop: {}", e);
+                        }
+                    }
+                }
+            })
+            .await;
+    });
+
+    // run the application
+    let mut app = Application::new(runtime);
+    event_loop
+        .run_app(&mut app)
+        .context("Failed to run application")?;
+    Ok(())
+}
+
+fn main() -> anyhow::Result<()> {
+    setup_logging().context("Failed to setup logging")?;
     tracing::info!("Starting iRacing HA Monitor");
-    let config = config::get_app_config();
-    if config.gui {
+    // let config = config::get_app_config();
+
+    #[cfg(feature = "iced_gui")]
+    {
         // // Tray icon on Windows
         // #[cfg(not(target_os = "linux"))]
         // let _tray_icon = Application::new_tray_icon();
@@ -129,49 +191,11 @@ async fn main() -> anyhow::Result<()> {
         // - the frontend should not worry about the config file or config events, it should only keep an internal state that gets
         //   saved to the config file when the user changes something, and updated (via message from the backend) when the config file changes
         // - sim status and tray events should be sent to the frontend via messages from the backend
-    } else {
-        // create the winit event loop
-        let event_loop = EventLoop::<backend::Event>::with_user_event()
-            .build()
-            .unwrap();
-        let event_loop_proxy = event_loop.create_proxy();
+    }
 
-        // run the connect() stream and handle the events
-        let stream = Box::pin(backend::connect());
-        let _stream_handle = tokio::spawn(async move {
-            stream
-                .for_each(|event| async {
-                    match event.clone() {
-                        backend::Event::Sim(_sim_event) => {
-                            // Send sim events to winit event loop
-                            if let Err(e) = event_loop_proxy.send_event(event) {
-                                log::warn!("Failed to send sim event to winit: {}", e);
-                            } else {
-                                log::debug!("Sent sim event to winit");
-                            }
-                        }
-                        backend::Event::Tray(_tray_event) => {
-                            // Send to winit event loop
-                            if let Err(e) = event_loop_proxy.send_event(event) {
-                                panic!("Failed to send tray event to winit event loop: {}", e);
-                            }
-                        }
-                        backend::Event::ConfigFile(_) => {
-                            // Handle config file events if needed
-                        }
-                        backend::Event::Shutdown => {
-                            if let Err(e) = event_loop_proxy.send_event(event) {
-                                panic!("Failed to send shutdown event to winit event loop: {}", e);
-                            }
-                        }
-                    }
-                })
-                .await;
-        });
-
-        // run the application
-        let mut app = Application::new();
-        if let Err(err) = event_loop.run_app(&mut app) {
+    #[cfg(not(feature = "iced_gui"))]
+    {
+        if let Err(err) = run_application() {
             log::error!("App error: {:?}", err);
         }
     }

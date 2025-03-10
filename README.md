@@ -9,6 +9,8 @@ Uses the [winresource](https://crates.io/crates/winresource) crate to set the ic
 Uses the [Wix Toolset](https://github.com/wixtoolset/) to build the Windows installer via Github Actions.
 
 ## TODO
+- [x] Add feature `iced_gui` to disable GUI
+- [ ] Avoid iced dependencies (`iced_futures`) when feature iced_gui is disabled
 - [x] Move winit event loop messaging into main
 - [ ] Option to "run on boot" on Windows (use registry)
 - [ ] Consider [cargo-bundle](https://crates.io/crates/cargo-bundle/0.6.1) for creating Linux and Windows installers, adding icons etc.

@@ -6,7 +6,7 @@ use crate::tray;
 
 use iced::widget::checkbox;
 use iced::widget::container;
-use iced::widget::{button, column, row, text, text_input, Column, Container, Space};
+use iced::widget::{button, column, row, text, text_input, Column, Space};
 use iced::window;
 use iced::Length::{self, Fill};
 use iced::{keyboard, Element, Padding};
@@ -59,6 +59,7 @@ pub struct IracingMonitorGui {
     tray_icon: Box<dyn tray::TrayIconInterface>,
     window_id: Option<window::Id>,
     screen: Screen,
+    shutdown: bool,
 }
 
 impl IracingMonitorGui {
@@ -75,6 +76,7 @@ impl IracingMonitorGui {
                 tray_icon: tray::create_tray_icon(),
                 window_id: Some(id),
                 screen: Screen::Home,
+                shutdown: false,
             },
             Task::batch([open.map(Message::WindowOpened)]),
         )
@@ -143,6 +145,9 @@ impl IracingMonitorGui {
                 self.window_id = None;
             }
             Message::BackendEvent(event) => {
+                if self.shutdown {
+                    return Task::none();
+                }
                 match event {
                     backend::Event::Sim(event) => {
                         log::debug!("SimUpdated message received! ({event})");
@@ -179,7 +184,9 @@ impl IracingMonitorGui {
                                 tray::MenuItem::Settings => {
                                     return self.open_window();
                                 }
-                                tray::MenuItem::LogDir | tray::MenuItem::ConfigFile | tray::MenuItem::RunOnBoot => {
+                                tray::MenuItem::LogDir
+                                | tray::MenuItem::ConfigFile
+                                | tray::MenuItem::RunOnBoot => {
                                     // handled by backend
                                 }
                             },
@@ -201,6 +208,7 @@ impl IracingMonitorGui {
             }
             Message::Quit => {
                 log::info!("Quitting application!");
+                self.shutdown = true;
 
                 // save config
                 log::info!("Saving config to file");
@@ -455,6 +463,10 @@ impl IracingMonitorGui {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
+        if self.shutdown {
+            // if we are shutting down, don't subscribe to any events
+            return Subscription::none();
+        }
         fn handle_hotkey(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Option<Message> {
             match (key.as_ref(), modifiers) {
                 // quit on Ctrl+Q

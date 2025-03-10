@@ -28,7 +28,6 @@ enum ConfigError {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AppConfig {
-    pub gui: bool,
     pub mqtt: MqttConfig,
     pub mqtt_enabled: bool,
 }
@@ -219,9 +218,9 @@ fn load() -> Result<Config, ConfigError> {
         .map_err(|_| ConfigError::Deserialize)
 }
 
-fn show() {
-    log::debug!("Current config: {:?}", config().read().unwrap().clone());
-}
+// fn show() {
+//     log::debug!("Current config: {:?}", config().read().unwrap().clone());
+// }
 
 #[derive(Debug, Clone)]
 pub enum Event {
