@@ -35,17 +35,6 @@ jobs:
           command: fmt
           args: --all -- --check
 
-      - name: Run linting (default features)
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-
-      - name: Run linting (all features)
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --all-features
-
   build:
     name: build ${{ matrix.target }}
     runs-on: ubuntu-22.04
@@ -88,6 +77,17 @@ jobs:
 
       - name: Run tests
         run: cargo test --verbose
+
+      - name: Run linting (default features)
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+
+      - name: Run linting (all features)
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --all-features
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
