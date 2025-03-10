@@ -6,3 +6,7 @@ repos:
         args: ['--all', '--', '--check']
       - id: cargo-check
       - id: clippy
+        name: clippy (default features)
+      - id: clippy
+        name: clippy (all features)
+        args: ['--all-features']
