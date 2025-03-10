@@ -11,7 +11,7 @@ env:
 
 jobs:
   format:
-    name: Check Format
+    name: Check formatting and linting
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +34,17 @@ jobs:
         with:
           command: fmt
           args: --all -- --check
+
+      - name: Run linting (default features)
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+
+      - name: Run linting (all features)
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --all-features
 
   build:
     name: build ${{ matrix.target }}
