@@ -24,20 +24,17 @@ pub enum SessionType {
     Practice,
     Qualify,
     Race,
+    #[serde(rename = "Lone Qualify")]
     LoneQualify,
+    #[serde(rename = "Offline Testing")]
     OfflineTesting,
 }
 
 impl Display for SessionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        match self {
-            SessionType::Disconnected => write!(f, "Disconnected"),
-            SessionType::Practice => write!(f, "Practice"),
-            SessionType::Qualify => write!(f, "Qualify"),
-            SessionType::Race => write!(f, "Race"),
-            SessionType::LoneQualify => write!(f, "Lone Qualify"),
-            SessionType::OfflineTesting => write!(f, "Offline Testing"),
-        }
+        // Use serde serialization to ensure Display matches JSON output
+        let json_value = serde_json::to_value(self).unwrap();
+        write!(f, "{}", json_value.as_str().unwrap())
     }
 }
 
@@ -306,8 +303,16 @@ async fn register_device(mqtt: &mut AsyncClient) -> Result<()> {
 
     let configuration_topic = "homeassistant/sensor/iracing/config";
 
-    // Get all session types as strings
-    let options: Vec<String> = SessionType::iter().map(|st| st.to_string()).collect();
+    // Get all session types as strings using serde serialization
+    let options: Vec<String> = SessionType::iter()
+        .map(|st| {
+            serde_json::to_value(&st)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
 
     let config = serde_json::json!({
         "name": "Session type",
