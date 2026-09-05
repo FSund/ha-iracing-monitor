@@ -9,6 +9,9 @@ use futures::prelude::stream::StreamExt;
 use futures::stream::Stream;
 use iced_futures::stream as iced_stream;
 
+// Some variants/payloads are only consumed by the `iced_gui` frontend or the
+// Windows console control handler, so they look dead in other build configurations.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum Event {
     Sim(sim_monitor::Event),
@@ -51,37 +54,36 @@ pub fn connect() -> impl Stream<Item = Event> {
                 }
                 Some(event) = tray_events.next() => {
                     log::debug!("Tray event: {:?}", event);
-                    if let tray::TrayEventType::MenuItemClicked(menu_item) = event.clone() {
-                        log::debug!("menu item: {:?}", menu_item);
-                        match menu_item {
-                            tray::MenuItem::Quit => {
-                                log::debug!("Quitting");
+                    let tray::TrayEventType::MenuItemClicked(menu_item) = event.clone();
+                    log::debug!("menu item: {:?}", menu_item);
+                    match menu_item {
+                        tray::MenuItem::Quit => {
+                            log::debug!("Quitting");
+                        }
+                        tray::MenuItem::ConfigFile => {
+                            log::debug!("Opening config file");
+                            let config_file = config::get_config_path();
+                            match open::that(config_file) {
+                                Ok(()) => log::debug!("Opened settings toml"),
+                                Err(err) => log::warn!("Error opening settings toml: {}", err),
                             }
-                            tray::MenuItem::ConfigFile => {
-                                log::debug!("Opening config file");
-                                let config_file = config::get_config_path();
-                                match open::that(config_file) {
-                                    Ok(()) => log::debug!("Opened settings toml"),
-                                    Err(err) => log::warn!("Error opening settings toml: {}", err),
+                        }
+                        tray::MenuItem::RunOnBoot => {
+                            // todo!("Run on boot");
+                            helpers::toggle_run_on_boot();
+                        }
+                        tray::MenuItem::LogDir => {
+                            if let Ok(log_dir) = logging::get_log_dir() {
+                                match open::that(log_dir) {
+                                    Ok(()) => log::debug!("Opened log dir"),
+                                    Err(err) => log::warn!("Error opening log dir: {}", err),
                                 }
+                            } else {
+                                log::warn!("Error getting log dir");
                             }
-                            tray::MenuItem::RunOnBoot => {
-                                // todo!("Run on boot");
-                                helpers::toggle_run_on_boot();
-                            }
-                            tray::MenuItem::LogDir => {
-                                if let Ok(log_dir) = logging::get_log_dir() {
-                                    match open::that(log_dir) {
-                                        Ok(()) => log::debug!("Opened log dir"),
-                                        Err(err) => log::warn!("Error opening log dir: {}", err),
-                                    }
-                                } else {
-                                    log::warn!("Error getting log dir");
-                                }
-                            }
-                            tray::MenuItem::Settings => {
-                                // no-op in backend
-                            }
+                        }
+                        tray::MenuItem::Settings => {
+                            // no-op in backend
                         }
                     }
                     output.send(Event::Tray(event)).await.unwrap();

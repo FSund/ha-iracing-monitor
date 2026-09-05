@@ -4,10 +4,6 @@ use futures::stream::Stream;
 use iced_futures::stream as iced_stream;
 use std::io;
 
-pub fn set_run_at_startup(_enable: bool, _exe_path: &str) -> io::Result<()> {
-    Ok(())
-}
-
 pub fn get_run_on_startup_state() -> io::Result<bool> {
     Ok(false)
 }

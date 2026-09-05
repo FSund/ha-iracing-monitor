@@ -3,7 +3,7 @@ use crate::config::AppConfig;
 use crate::iracing_client;
 
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{SecondsFormat, TimeDelta, Utc};
 use futures::channel::mpsc;
 use futures::prelude::sink::SinkExt;
 use futures::prelude::stream::StreamExt;
@@ -16,6 +16,8 @@ use std::fmt::{Display, Formatter};
 use std::time::Duration;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+
+const STATE_TOPIC: &str = "homeassistant/sensor/iracing/state";
 
 #[derive(Debug, Serialize, Clone, PartialEq, EnumIter)]
 pub enum SessionType {
@@ -44,6 +46,10 @@ pub struct SimMonitorState {
     // in_session: bool,
     pub current_session_type: SessionType,
     // session_state: String,
+    /// Seconds left in the current session, `None` for untimed sessions.
+    pub session_time_remaining: Option<i64>,
+    /// RFC3339 timestamp of when the current session is scheduled to end.
+    pub session_end_time: Option<String>,
     pub timestamp: String,
 }
 
@@ -54,6 +60,8 @@ impl Default for SimMonitorState {
             // in_session: false,
             current_session_type: SessionType::Disconnected,
             // session_state: "None".to_string(),
+            session_time_remaining: None,
+            session_end_time: None,
             timestamp: Utc::now().to_rfc3339(),
         }
     }
@@ -94,7 +102,7 @@ impl SimMonitor {
             iracing: iracing_client::Client::new(),
             mqtt: None,
             last_state: None,
-            mqtt_topic: "homeassistant/sensor/iracing/state".to_string(),
+            mqtt_topic: STATE_TOPIC.to_string(),
             mqtt_eventloop_handle: None,
             mqtt_eventloop: None,
         };
@@ -242,12 +250,12 @@ impl SimMonitor {
     }
 
     async fn get_current_state(&mut self) -> SimMonitorState {
-        match self.iracing.get_current_session_type().await {
-            Some(session_type) => {
-                log::debug!("Found session_type: {}", session_type);
+        match self.iracing.get_current_session_state().await {
+            Some(session_state) => {
+                log::debug!("Found session_type: {}", session_state.session_type);
 
                 // Convert the string to SessionType
-                let session_type_enum = match session_type.as_str() {
+                let session_type_enum = match session_state.session_type.as_str() {
                     "Practice" => SessionType::Practice,
                     "Qualify" => SessionType::Qualify,
                     "Race" => SessionType::Race,
@@ -259,15 +267,26 @@ impl SimMonitor {
                     }
                 };
 
+                let now = Utc::now();
+                let session_time_remaining =
+                    session_state.time_remaining.map(|seconds| seconds as i64);
+                let session_end_time = session_time_remaining.map(|seconds| {
+                    (now + TimeDelta::seconds(seconds)).to_rfc3339_opts(SecondsFormat::Secs, true)
+                });
+
                 SimMonitorState {
                     connected: true,
                     current_session_type: session_type_enum,
-                    timestamp: Utc::now().to_rfc3339(),
+                    session_time_remaining,
+                    session_end_time,
+                    timestamp: now.to_rfc3339(),
                 }
             }
             None => SimMonitorState {
                 connected: false,
                 current_session_type: SessionType::Disconnected,
+                session_time_remaining: None,
+                session_end_time: None,
                 timestamp: Utc::now().to_rfc3339(),
             },
         }
@@ -301,8 +320,6 @@ async fn register_device(mqtt: &mut AsyncClient) -> Result<()> {
     // <discovery_prefix>/<component>/[<node_id>/]<object_id>/config
     // Best practice for entities with a unique_id is to set <object_id> to unique_id and omit the <node_id>.
 
-    let configuration_topic = "homeassistant/sensor/iracing/config";
-
     // Get all session types as strings using serde serialization
     let options: Vec<String> = SessionType::iter()
         .map(|st| {
@@ -314,29 +331,67 @@ async fn register_device(mqtt: &mut AsyncClient) -> Result<()> {
         })
         .collect();
 
-    let config = serde_json::json!({
-        "name": "Session type",
-        "state_topic": "homeassistant/sensor/iracing/state",
-        "value_template": "{{ value_json.current_session_type }}",
-        "unique_id": "iracing_session_type",
-        "expire_after": 30,
-        "icon": "mdi:racing-helmet",
-        "device_class": "enum",
-        "options": options,
-        "device": {
-            "identifiers": "my_unique_id",
-            "name": "iRacing Simulator",
-        },
+    let device = serde_json::json!({
+        "identifiers": "my_unique_id",
+        "name": "iRacing Simulator",
     });
 
-    mqtt.publish(
-        configuration_topic,
-        QoS::AtLeastOnce,
-        true,
-        serde_json::to_string(&config)?,
-    )
-    .await
-    .context("Failed to publish MQTT discovery configuration")?;
+    let sensors = [
+        (
+            "homeassistant/sensor/iracing/config",
+            serde_json::json!({
+                "name": "Session type",
+                "state_topic": STATE_TOPIC,
+                "value_template": "{{ value_json.current_session_type }}",
+                "unique_id": "iracing_session_type",
+                "expire_after": 30,
+                "icon": "mdi:racing-helmet",
+                "device_class": "enum",
+                "options": options,
+                "device": device,
+            }),
+        ),
+        (
+            "homeassistant/sensor/iracing_session_time_remaining/config",
+            serde_json::json!({
+                "name": "Session time remaining",
+                "state_topic": STATE_TOPIC,
+                // renders to None for untimed sessions, which Home Assistant treats as unknown
+                "value_template": "{{ value_json.session_time_remaining }}",
+                "unique_id": "iracing_session_time_remaining",
+                "expire_after": 30,
+                "icon": "mdi:timer-outline",
+                "device_class": "duration",
+                "unit_of_measurement": "s",
+                "device": device,
+            }),
+        ),
+        (
+            "homeassistant/sensor/iracing_session_end_time/config",
+            serde_json::json!({
+                "name": "Session end time",
+                "state_topic": STATE_TOPIC,
+                // renders to None for untimed sessions, which Home Assistant treats as unknown
+                "value_template": "{{ value_json.session_end_time }}",
+                "unique_id": "iracing_session_end_time",
+                "expire_after": 30,
+                "icon": "mdi:flag-checkered",
+                "device_class": "timestamp",
+                "device": device,
+            }),
+        ),
+    ];
+
+    for (configuration_topic, config) in sensors {
+        mqtt.publish(
+            configuration_topic,
+            QoS::AtLeastOnce,
+            true,
+            serde_json::to_string(&config)?,
+        )
+        .await
+        .context("Failed to publish MQTT discovery configuration")?;
+    }
 
     log::info!("Registered device with Home Assistant.");
     Ok(())

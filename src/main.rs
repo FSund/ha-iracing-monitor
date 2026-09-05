@@ -16,13 +16,17 @@ mod tray;
 mod frontend;
 
 use anyhow::Context;
-use futures::prelude::stream::StreamExt;
 use logging::setup_logging;
+
+#[cfg(not(feature = "iced_gui"))]
+use futures::prelude::stream::StreamExt;
+#[cfg(not(feature = "iced_gui"))]
 use winit::{application::ApplicationHandler, event_loop::EventLoop};
 
 #[cfg(feature = "iced_gui")]
 use frontend::IracingMonitorGui;
 
+#[cfg(not(feature = "iced_gui"))]
 struct Application {
     tray_icon: Box<dyn tray::TrayIconInterface>,
     // Store runtime reference to keep it alive
@@ -30,6 +34,7 @@ struct Application {
     runtime: tokio::runtime::Runtime,
 }
 
+#[cfg(not(feature = "iced_gui"))]
 impl Application {
     fn new(runtime: tokio::runtime::Runtime) -> Self {
         Self {
@@ -39,6 +44,7 @@ impl Application {
     }
 }
 
+#[cfg(not(feature = "iced_gui"))]
 impl ApplicationHandler<backend::Event> for Application {
     // required
     fn resumed(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {}
@@ -92,14 +98,13 @@ impl ApplicationHandler<backend::Event> for Application {
                 self.tray_icon.update_state(state);
             }
             backend::Event::Tray(tray_event) => match tray_event {
-                tray::TrayEventType::MenuItemClicked(menu_item) => match menu_item {
-                    tray::MenuItem::Quit => {
+                tray::TrayEventType::MenuItemClicked(menu_item) => {
+                    if menu_item == tray::MenuItem::Quit {
                         log::info!("Shutting down tray icon and winit event loop");
                         self.tray_icon.shutdown();
                         event_loop.exit();
                     }
-                    _ => {}
-                },
+                }
             },
             backend::Event::Shutdown => {
                 self.tray_icon.shutdown();
@@ -110,6 +115,7 @@ impl ApplicationHandler<backend::Event> for Application {
     }
 }
 
+#[cfg(not(feature = "iced_gui"))]
 fn run_application() -> anyhow::Result<()> {
     // Create a tokio runtime
     let runtime = tokio::runtime::Builder::new_multi_thread()

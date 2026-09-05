@@ -1,6 +1,6 @@
 use crate::helpers;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use lazy_static::lazy_static;
 use std::{fs, path::PathBuf};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};

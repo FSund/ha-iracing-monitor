@@ -1,4 +1,4 @@
-use crate::iracing_client::SimClient;
+use crate::iracing_client::{SessionState, SimClient};
 
 pub struct MockClient {
     connected: bool,
@@ -21,13 +21,16 @@ impl SimClient for MockClient {
         Self { connected: false }
     }
 
-    async fn get_current_session_type(&mut self) -> Option<String> {
+    async fn get_current_session_state(&mut self) -> Option<SessionState> {
         if !self.connect().await {
             return None;
         }
 
         if self.connected {
-            Some("Practice".to_string()) // Mock implementation
+            Some(SessionState {
+                session_type: "Practice".to_string(), // Mock implementation
+                time_remaining: Some(1800.0),
+            })
         } else {
             None
         }

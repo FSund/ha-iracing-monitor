@@ -67,16 +67,19 @@ impl TrayIconInterface for SimTrayIcon {
 }
 
 // Add a new struct for Linux GTK implementation
+#[cfg(target_os = "linux")]
 pub struct GtkTrayIcon {
     sender: std::sync::mpsc::Sender<sim_monitor::SimMonitorState>,
 }
 
+#[cfg(target_os = "linux")]
 impl GtkTrayIcon {
     pub fn new(sender: std::sync::mpsc::Sender<sim_monitor::SimMonitorState>) -> Self {
         Self { sender }
     }
 }
 
+#[cfg(target_os = "linux")]
 impl TrayIconInterface for GtkTrayIcon {
     fn update_state(&mut self, state: sim_monitor::SimMonitorState) {
         if let Err(e) = self.sender.send(state) {
@@ -137,15 +140,16 @@ pub enum MenuItem {
     RunOnBoot,
 }
 
-impl ToString for MenuItem {
-    fn to_string(&self) -> String {
-        match self {
-            MenuItem::Settings => "settings".to_string(),
-            MenuItem::ConfigFile => "config_file".to_string(),
-            MenuItem::LogDir => "log_dir".to_string(),
-            MenuItem::Quit => "quit".to_string(),
-            MenuItem::RunOnBoot => "run_on_boot".to_string(),
-        }
+impl std::fmt::Display for MenuItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let id = match self {
+            MenuItem::Settings => "settings",
+            MenuItem::ConfigFile => "config_file",
+            MenuItem::LogDir => "log_dir",
+            MenuItem::Quit => "quit",
+            MenuItem::RunOnBoot => "run_on_boot",
+        };
+        write!(f, "{id}")
     }
 }
 

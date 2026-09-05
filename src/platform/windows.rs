@@ -8,7 +8,7 @@ use std::io;
 use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 use winreg::RegKey;
 
-pub fn set_run_at_startup(enable: bool, exe_path: &str) -> io::Result<()> {
+fn set_run_at_startup(enable: bool, exe_path: &str) -> io::Result<()> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let run_key =
         hkcu.open_subkey_with_flags(r"Software\Microsoft\Windows\CurrentVersion\Run", KEY_WRITE)?;

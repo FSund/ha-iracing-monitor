@@ -1,11 +1,18 @@
 pub use async_trait::async_trait;
 
+#[derive(Debug, Clone)]
+pub struct SessionState {
+    pub session_type: String,
+    /// Seconds left in the current session, `None` for untimed sessions.
+    pub time_remaining: Option<f64>,
+}
+
 #[async_trait]
 pub trait SimClient {
     fn new() -> Self;
     // async fn connect(&mut self) -> bool;
     // fn is_connected(&self) -> bool;
-    async fn get_current_session_type(&mut self) -> Option<String>;
+    async fn get_current_session_state(&mut self) -> Option<SessionState>;
 }
 
 #[cfg(target_os = "windows")]

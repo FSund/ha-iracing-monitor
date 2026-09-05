@@ -1,7 +1,10 @@
-use crate::iracing_client::SimClient; // Make sure to import the trait
+use crate::iracing_client::{SessionState, SimClient}; // Make sure to import the trait
 use simetry::iracing;
 use std::time::Duration;
 use tokio::time::timeout;
+
+/// iRacing reports one week of remaining time for untimed sessions.
+const UNLIMITED_TIME: f64 = 604_800.0;
 
 pub struct IracingClient {
     client: Option<iracing::Client>,
@@ -36,7 +39,7 @@ impl SimClient for IracingClient {
         Self { client: None }
     }
 
-    async fn get_current_session_type(&mut self) -> Option<String> {
+    async fn get_current_session_state(&mut self) -> Option<SessionState> {
         if !self.connect().await {
             return None;
         }
@@ -56,7 +59,7 @@ impl SimClient for IracingClient {
 
         let sessions = session_info["SessionInfo"]["Sessions"].as_vec()?;
 
-        sessions
+        let session_type = sessions
             .iter()
             .find(|session| {
                 session["SessionNum"]
@@ -64,6 +67,15 @@ impl SimClient for IracingClient {
                     .is_some_and(|num| num as i32 == session_num)
             })
             .and_then(|session| session["SessionType"].as_str())
-            .map(String::from)
+            .map(String::from)?;
+
+        let time_remaining = sim_state
+            .read_name::<f64>("SessionTimeRemain")
+            .filter(|remaining| remaining.is_finite() && (0.0..UNLIMITED_TIME).contains(remaining));
+
+        Some(SessionState {
+            session_type,
+            time_remaining,
+        })
     }
 }

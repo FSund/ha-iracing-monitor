@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::RwLock;
 
-use anyhow::Error;
 use anyhow::{Context, Result};
 use config::{Config, File};
 use futures::channel::mpsc;
@@ -15,14 +14,14 @@ use serde::Serialize;
 
 use crate::sim_monitor::MqttConfig;
 
+// Payloads are only surfaced through the derived `Debug` impl when logging.
+#[allow(dead_code)]
 #[derive(Debug)]
 enum ConfigError {
     Deserialize,
-    Serialize,
     FileEmpty,
     FileNotFound(PathBuf),
     FileRead(PathBuf),
-    FileWrite(PathBuf),
     LockError,
 }
 
