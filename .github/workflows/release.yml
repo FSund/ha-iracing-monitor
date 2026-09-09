@@ -5,81 +5,78 @@ on:
     types: [created]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
-  # default values
   VERSION: ${{ github.event.release.tag_name }}
-  ASSET: ${{ github.event.release.tag_name }}.zip
 
 jobs:
   linux:
-    name: Linux release 
+    name: Linux release
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get the release version from the tag
-        shell: bash
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      # Add cache for release job
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "release-linux"
-          cache-directories: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git
-            target/
+          key: release-linux
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             libglib2.0-dev \
             libpango1.0-dev \
             libgdk-pixbuf2.0-dev \
             libatk1.0-dev \
             libgtk-3-dev \
             libxdo-dev \
-            pkg-config \
-            mingw-w64
+            pkg-config
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --locked --release
 
       - name: Build archive
         shell: bash
         run: |
-          # Get binary name from Cargo.toml
-          binary_name=$(grep -m1 'name *=' Cargo.toml | cut -d '"' -f2)
+          set -euo pipefail
 
-          dirname="$binary_name-${{ env.VERSION }}-linux"
+          # Anchored so a dependency's `name = ...` key can never match first.
+          binary_name=$(grep -m1 '^name *=' Cargo.toml | cut -d '"' -f2)
+
+          dirname="$binary_name-${VERSION}-linux"
           mkdir "$dirname"
-          
-          # Copy binary
-          mv "target/release/$binary_name" "$dirname"
 
-          # Copy additional files
-          cp README.md LICENSE* "$dirname" 2>/dev/null || true
+          mv "target/release/$binary_name" "$dirname/"
+          cp README.md LICENSE-APACHE LICENSE-MIT "$dirname/"
 
-          # Create archive
           tar -czf "$dirname.tar.gz" "$dirname"
-          echo "ASSET=$dirname.tar.gz" >> $GITHUB_ENV
+          echo "ASSET=$dirname.tar.gz" >> "$GITHUB_ENV"
 
-      - name: Release
+      - name: Upload assets
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            ${{ env.ASSET }}
+          tag_name: ${{ github.event.release.tag_name }}
+          fail_on_unmatched_files: true
+          files: ${{ env.ASSET }}
 
   windows:
     name: Windows release
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     defaults:
       run:
@@ -89,53 +86,58 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get the release version from the tag
-        shell: bash
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      # Add cache for release job
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "release-windows"
-          cache-directories: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git
-            target/
+          key: release-windows
 
       - name: Build
-        run: cargo build --release
+        run: cargo build --locked --release
 
       - name: Build archive
-        shell: bash
         run: |
-          # Get binary name from Cargo.toml
-          binary_name=$(grep -m1 'name *=' Cargo.toml | cut -d '"' -f2)
+          set -euo pipefail
 
-          dirname="$binary_name-${{ env.VERSION }}-windows-portable"
+          binary_name=$(grep -m1 '^name *=' Cargo.toml | cut -d '"' -f2)
+
+          dirname="$binary_name-${VERSION}-windows-portable"
           mkdir "$dirname"
-          
-          # Copy binary
-          cp "target/release/$binary_name.exe" "$dirname"
 
-          # Copy additional files
-          cp README.md LICENSE* "$dirname" 2>/dev/null || true
+          cp "target/release/$binary_name.exe" "$dirname/"
+          cp README.md LICENSE-APACHE LICENSE-MIT "$dirname/"
 
-          # Create archive
           7z a "$dirname.zip" "$dirname"
-          echo "ASSET=$dirname.zip" >> $GITHUB_ENV
+          echo "ASSET=$dirname.zip" >> "$GITHUB_ENV"
 
       - name: Install WiX
         run: dotnet tool install --global wix --version 4.0.5
 
       - name: Create msi installer
         run: |
+          set -euo pipefail
+
+          # MSI ProductVersion must be strictly numeric: drop a leading "v" and
+          # any SemVer build metadata (e.g. 0.4.2+c977bdd -> 0.4.2).
+          msi_version="${VERSION#v}"
+          msi_version="${msi_version%%+*}"
+          msi_version="${msi_version%%-*}"
+
           wix extension add WixToolset.UI.wixext/4.0.5 WixToolset.Util.wixext/4.0.5
-          wix build -arch "x64" -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -out "./iracing-ha-monitor-${{ env.VERSION }}-installer.msi" "resources/windows/iracing_ha_monitor.wxs"
+          wix build \
+            -arch x64 \
+            -ext WixToolset.UI.wixext \
+            -ext WixToolset.Util.wixext \
+            -d Version="$msi_version" \
+            -out "./iracing-ha-monitor-${VERSION}-installer.msi" \
+            "resources/windows/iracing_ha_monitor.wxs"
 
       - name: Upload assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.release.tag_name }}
+          fail_on_unmatched_files: true
           files: |
             ${{ env.ASSET }}
-            iracing-ha-monitor-${{ env.VERSION }}-installer.msi
+            iracing-ha-monitor-${{ github.event.release.tag_name }}-installer.msi
