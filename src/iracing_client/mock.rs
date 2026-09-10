@@ -1,4 +1,6 @@
+use crate::config::TelemetrySensor;
 use crate::iracing_client::{SessionState, SimClient};
+use std::collections::BTreeMap;
 
 pub struct MockClient {
     connected: bool,
@@ -25,7 +27,10 @@ impl SimClient for MockClient {
         }
     }
 
-    async fn get_current_session_state(&mut self) -> Option<SessionState> {
+    async fn get_current_session_state(
+        &mut self,
+        telemetry: &BTreeMap<String, TelemetrySensor>,
+    ) -> Option<SessionState> {
         if !self.connect().await {
             return None;
         }
@@ -37,8 +42,18 @@ impl SimClient for MockClient {
                 self.session_info_sent = true;
                 Some(mock_session_info())
             };
+            let telemetry = telemetry
+                .iter()
+                .map(|(id, sensor)| {
+                    let value = match sensor.variable.as_str() {
+                        "SessionTimeRemain" => serde_json::json!(1800.0),
+                        _ => serde_json::Value::Null,
+                    };
+                    (id.clone(), value)
+                })
+                .collect();
             Some(SessionState {
-                time_remaining: Some(1800.0),
+                telemetry,
                 session_info,
             })
         } else {

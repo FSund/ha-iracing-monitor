@@ -7,9 +7,9 @@ Monitors iRacing session state and sends it to Home Assistant via MQTT.
 Requires **Home Assistant 2025.1 or newer**:
 
 - Entities are registered via [MQTT device-based discovery](https://www.home-assistant.io/integrations/mqtt/#device-discovery-payload) (introduced in HA 2024.6).
-- Untimed sessions reset the session time/end time sensors to `unknown` by publishing a `None` state, which HA supports for non-numeric sensors since 2025.1.
+- Unavailable telemetry values (e.g. session time remaining in untimed sessions) reset their sensors to `unknown` by publishing a `None` state, which HA supports for non-numeric sensors since 2025.1.
 
-State is published to `iracing/state`, and configurable session-info attribute groups (see [config.toml](config.toml)) are published as retained JSON to `iracing/<group>`.
+State and configurable telemetry sensors (iRacing telemetry variables, see [config.toml](config.toml)) are published to `iracing/state`; configurable session-info attribute groups are published as retained JSON to `iracing/<group>`. All sensors share the retained `iracing/availability` topic (`online`/`offline`, with `offline` set as the MQTT last will), so everything shows as unavailable in Home Assistant when not connected to iRacing.
 
 ## Requirements
 
