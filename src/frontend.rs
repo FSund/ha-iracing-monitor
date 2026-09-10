@@ -241,7 +241,7 @@ impl IracingMonitorGui {
         }
     }
 
-    fn home(&self) -> Column<Message> {
+    fn home(&self) -> Column<'_, Message> {
         column![
             // text("iRacing Home Assistant Monitor").size(28),
             // Space::new(Length::Shrink, Length::Fixed(16.)),
@@ -255,7 +255,7 @@ impl IracingMonitorGui {
         ]
     }
 
-    fn settings(&self) -> Column<Message> {
+    fn settings(&self) -> Column<'_, Message> {
         let text_width = 100;
         let row_spacing = 4.0;
         column![
@@ -295,7 +295,7 @@ impl IracingMonitorGui {
         ]
     }
 
-    pub fn view(&self, _window_id: iced::window::Id) -> Element<Message> {
+    pub fn view(&self, _window_id: iced::window::Id) -> Element<'_, Message> {
         // main screen
         let screen = match self.screen {
             Screen::Home => self.home(),

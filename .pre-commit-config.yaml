@@ -7,6 +7,7 @@ repos:
       - id: cargo-check
       - id: clippy
         name: clippy (default features)
+        args: ['--locked', '--all-targets', '--', '-D', 'warnings']
       - id: clippy
         name: clippy (all features)
-        args: ['--all-features']
+        args: ['--locked', '--all-targets', '--all-features', '--', '-D', 'warnings']
