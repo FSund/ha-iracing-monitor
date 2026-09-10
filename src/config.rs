@@ -30,12 +30,11 @@ enum ConfigError {
 pub struct AppConfig {
     pub mqtt: MqttConfig,
     pub mqtt_enabled: bool,
-    /// Attribute groups published as `iracing/<group>`: group -> (attribute name -> session info path).
+    /// Session info attributes published as `iracing/session_info`: attribute name -> session info path.
     #[serde(default)]
-    pub attributes: BTreeMap<String, BTreeMap<String, String>>,
+    pub attributes: BTreeMap<String, String>,
     /// Telemetry sensors published in the `iracing/state` payload: sensor id -> definition.
-    #[serde(default)]
-    pub telemetry: BTreeMap<String, TelemetrySensor>,
+    pub sensors: BTreeMap<String, TelemetrySensor>,
 }
 
 /// A Home Assistant sensor backed by an iRacing telemetry variable.

@@ -11,28 +11,24 @@ password = ""
 # telemetry variable name; `device_class`, `unit` and `icon` are optional
 # Home Assistant metadata. Sensor ids must not collide with the built-in
 # `timestamp` payload field.
-[telemetry.session_time_remaining]
+[sensors.session_time_remaining]
 variable = "SessionTimeRemain"
 device_class = "duration"
 unit = "s"
 icon = "mdi:timer-outline"
 
-# Session info attributes published to `iracing/<group>` as retained JSON.
-# Group names must not be "state" (reserved for the state topic).
+# Session info attributes published to `iracing/session_info` as retained JSON
+# and exposed as attributes of a single "Session info" sensor.
 # Path syntax: dotted keys, `[N]` for array indexes, `[{Other.Path}]` for an
 # index resolved from elsewhere in the session info document.
-[attributes.weekend]
+[attributes]
 track_name = "WeekendInfo.TrackDisplayName"
 track_config = "WeekendInfo.TrackConfigName"
 air_temp = "WeekendInfo.TrackAirTemp"
 track_temp = "WeekendInfo.TrackSurfaceTemp"
 event_type = "WeekendInfo.EventType"
-
-[attributes.session]
 session_type = "SessionInfo.Sessions[{CurrentSessionNum}].SessionType"
 session_laps = "SessionInfo.Sessions[{CurrentSessionNum}].SessionLaps"
-
-[attributes.drivers]
 driver_name = "DriverInfo.Drivers[{DriverInfo.DriverCarIdx}].UserName"
 car = "DriverInfo.Drivers[{DriverInfo.DriverCarIdx}].CarScreenName"
 car_class = "DriverInfo.Drivers[{DriverInfo.DriverCarIdx}].CarClassShortName"
