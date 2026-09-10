@@ -18,8 +18,10 @@ use std::time::Duration;
 /// All data topics live under this prefix: `iracing/state` and `iracing/<group>`.
 const TOPIC_PREFIX: &str = "iracing";
 const STATE_TOPIC: &str = "iracing/state";
-/// Retained `online`/`offline`; shared by all sensors via discovery, `offline` set as LWT.
-const AVAILABILITY_TOPIC: &str = "iracing/availability";
+/// Service health: retained `online` published on each broker connect, `offline` set as LWT.
+const SERVICE_AVAILABILITY_TOPIC: &str = "iracing/availability";
+/// Sim connectivity: retained `online`/`offline` depending on whether iRacing is running.
+const SIM_AVAILABILITY_TOPIC: &str = "iracing/sim_availability";
 /// Device-based discovery: one payload describing all sensors.
 const DISCOVERY_TOPIC: &str = "homeassistant/device/iracing/config";
 /// Where the current session type lives in the session info document.
@@ -28,7 +30,7 @@ const SESSION_TYPE_PATH: &str = "SessionInfo.Sessions[{CurrentSessionNum}].Sessi
 /// Internal monitor state; only `telemetry` and `timestamp` are published to MQTT.
 #[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct SimMonitorState {
-    /// Signaled to Home Assistant via the availability topic, not the payload.
+    /// Signaled to Home Assistant via the sim availability topic, not the payload.
     #[serde(skip)]
     pub connected: bool,
     /// For the tray/frontend; Home Assistant gets it via the attribute groups.
@@ -81,8 +83,8 @@ pub struct SimMonitor {
     session_info: Option<serde_json::Value>,
     /// Last published payload per attribute group, used to skip redundant publishes.
     last_attributes: BTreeMap<String, serde_json::Map<String, serde_json::Value>>,
-    /// Last published availability, used to skip redundant publishes.
-    last_availability: Option<bool>,
+    /// Last published sim availability, used to skip redundant publishes.
+    last_sim_availability: Option<bool>,
 
     mqtt_eventloop_handle: Option<tokio::task::JoinHandle<()>>,
     mqtt_eventloop: Option<rumqttc::EventLoop>,
@@ -102,7 +104,7 @@ impl SimMonitor {
             telemetry_config,
             session_info: None,
             last_attributes: BTreeMap::new(),
-            last_availability: None,
+            last_sim_availability: None,
             mqtt_eventloop_handle: None,
             mqtt_eventloop: None,
         };
@@ -119,7 +121,7 @@ impl SimMonitor {
 
         // Force a fresh publish of all attribute groups on the (re)configured connection
         self.last_attributes.clear();
-        self.last_availability = None;
+        self.last_sim_availability = None;
 
         let Some(mqtt_config) = mqtt_config else {
             log::debug!("Disabling MQTT");
@@ -133,7 +135,7 @@ impl SimMonitor {
         mqtt_options.set_credentials(mqtt_config.user, mqtt_config.password);
         // Mark all sensors unavailable if the app dies without disconnecting cleanly
         mqtt_options.set_last_will(LastWill::new(
-            AVAILABILITY_TOPIC,
+            SERVICE_AVAILABILITY_TOPIC,
             "offline",
             QoS::AtLeastOnce,
             true,
@@ -154,25 +156,36 @@ impl SimMonitor {
         if let Some(mut mqtt_eventloop) = self.mqtt_eventloop.take() {
             // Spawn and store the event loop handle
             log::debug!("Starting MQTT event loop");
+            let birth_client = self.mqtt.clone();
             self.mqtt_eventloop_handle = Some(tokio::spawn(async move {
                 loop {
                     match mqtt_eventloop.poll().await {
+                        // Birth message: (re)announce service availability on every broker
+                        // (re)connect, since the LWT may have marked us offline in between
+                        Ok(rumqttc::Event::Incoming(rumqttc::Packet::ConnAck(_))) => {
+                            if let Some(client) = &birth_client {
+                                if let Err(e) = client
+                                    .publish(
+                                        SERVICE_AVAILABILITY_TOPIC,
+                                        QoS::AtLeastOnce,
+                                        true,
+                                        "online",
+                                    )
+                                    .await
+                                {
+                                    log::warn!("Failed to publish service availability: {e}");
+                                }
+                            }
+                        }
                         Ok(_notification) => {
                             // log::debug!("MQTT event: {:?}", notification);
                         }
                         Err(e) => {
                             // Just log the error but keep polling - the event loop will handle reconnection
-                            // log::error!("MQTT error (will retry automatically): {:?}", e);
                             log::error!("MQTT error {e}");
                             tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
                         }
                     }
-
-                    // Small yield to prevent tight loop
-                    // tokio::task::yield_now().await;
-
-                    // TODO: is this the way?
-                    // tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 }
             }));
 
@@ -194,7 +207,7 @@ impl SimMonitor {
     }
 
     async fn publish_state(&mut self, state: &SimMonitorState) -> Result<()> {
-        self.publish_availability(state.connected).await;
+        self.publish_sim_availability(state.connected).await;
         if Some(state) != self.last_state.as_ref() {
             if let Some(mqtt) = self.mqtt.as_mut() {
                 let payload = serde_json::to_string(&state)?;
@@ -238,9 +251,10 @@ impl SimMonitor {
         Ok(())
     }
 
-    /// Publishes retained `online`/`offline`, flipping every sensor's availability in HA.
-    async fn publish_availability(&mut self, connected: bool) {
-        if self.last_availability == Some(connected) {
+    /// Publishes retained `online`/`offline` sim connectivity; the data sensors
+    /// require it for availability and the "Sim running" binary sensor shows it.
+    async fn publish_sim_availability(&mut self, connected: bool) {
+        if self.last_sim_availability == Some(connected) {
             return;
         }
         let Some(mqtt) = self.mqtt.as_ref() else {
@@ -248,14 +262,14 @@ impl SimMonitor {
         };
         let payload = if connected { "online" } else { "offline" };
         match mqtt
-            .publish(AVAILABILITY_TOPIC, QoS::AtLeastOnce, true, payload)
+            .publish(SIM_AVAILABILITY_TOPIC, QoS::AtLeastOnce, true, payload)
             .await
         {
             Ok(()) => {
-                self.last_availability = Some(connected);
+                self.last_sim_availability = Some(connected);
             }
             Err(e) => {
-                log::warn!("Failed to publish availability: {e}");
+                log::warn!("Failed to publish sim availability: {e}");
             }
         }
     }
@@ -457,6 +471,22 @@ async fn register_device(
 
     let mut components = serde_json::Map::new();
 
+    // Distinguishes "monitor up, iRacing not running" (off) from "monitor down"
+    // (unavailable): only tied to service availability, unlike the data sensors.
+    components.insert(
+        "sim_running".to_string(),
+        serde_json::json!({
+            "platform": "binary_sensor",
+            "name": "Sim running",
+            "state_topic": SIM_AVAILABILITY_TOPIC,
+            "payload_on": "online",
+            "payload_off": "offline",
+            "device_class": "running",
+            "unique_id": "iracing_sim_running",
+            "availability": [{ "topic": SERVICE_AVAILABILITY_TOPIC }],
+        }),
+    );
+
     // One sensor per configured telemetry entry, read from the state payload.
     for (id, sensor) in telemetry_config {
         let mut component = serde_json::json!({
@@ -510,8 +540,13 @@ async fn register_device(
             "name": "iracing-ha-monitor",
             "sw_version": env!("CARGO_PKG_VERSION"),
         },
-        // Shared by all components: sensors show unavailable unless "online"
-        "availability_topic": AVAILABILITY_TOPIC,
+        // Shared by all components unless overridden: sensors are only available
+        // while both the service and the sim are online
+        "availability": [
+            { "topic": SERVICE_AVAILABILITY_TOPIC },
+            { "topic": SIM_AVAILABILITY_TOPIC },
+        ],
+        "availability_mode": "all",
         "components": components,
     });
 
