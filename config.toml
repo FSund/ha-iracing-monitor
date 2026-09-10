@@ -1,0 +1,38 @@
+mqtt_enabled = true
+
+[mqtt]
+host = "localhost"
+port = 1883
+user = ""
+password = ""
+
+# Live telemetry sensors published in the `iracing/state` JSON payload, each
+# discovered as its own Home Assistant sensor. `variable` is the iRacing
+# telemetry variable name; `device_class`, `unit` and `icon` are optional
+# Home Assistant metadata. Sensor ids must not collide with the built-in
+# `timestamp` payload field.
+[telemetry.session_time_remaining]
+variable = "SessionTimeRemain"
+device_class = "duration"
+unit = "s"
+icon = "mdi:timer-outline"
+
+# Session info attributes published to `iracing/<group>` as retained JSON.
+# Group names must not be "state" (reserved for the state topic).
+# Path syntax: dotted keys, `[N]` for array indexes, `[{Other.Path}]` for an
+# index resolved from elsewhere in the session info document.
+[attributes.weekend]
+track_name = "WeekendInfo.TrackDisplayName"
+track_config = "WeekendInfo.TrackConfigName"
+air_temp = "WeekendInfo.TrackAirTemp"
+track_temp = "WeekendInfo.TrackSurfaceTemp"
+event_type = "WeekendInfo.EventType"
+
+[attributes.session]
+session_type = "SessionInfo.Sessions[{CurrentSessionNum}].SessionType"
+session_laps = "SessionInfo.Sessions[{CurrentSessionNum}].SessionLaps"
+
+[attributes.drivers]
+driver_name = "DriverInfo.Drivers[{DriverInfo.DriverCarIdx}].UserName"
+car = "DriverInfo.Drivers[{DriverInfo.DriverCarIdx}].CarScreenName"
+car_class = "DriverInfo.Drivers[{DriverInfo.DriverCarIdx}].CarClassShortName"
