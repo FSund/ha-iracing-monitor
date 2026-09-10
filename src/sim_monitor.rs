@@ -12,12 +12,19 @@ use iced_futures::stream as iced_stream;
 use iracing_client::SimClient;
 use rumqttc::{AsyncClient, MqttOptions, QoS};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-const STATE_TOPIC: &str = "homeassistant/sensor/iracing/state";
+/// All data topics live under this prefix: `iracing/state` and `iracing/<group>`.
+const TOPIC_PREFIX: &str = "iracing";
+const STATE_TOPIC: &str = "iracing/state";
+/// Device-based discovery: one payload describing all sensors.
+const DISCOVERY_TOPIC: &str = "homeassistant/device/iracing/config";
+/// Where the current session type lives in the session info document.
+const SESSION_TYPE_PATH: &str = "SessionInfo.Sessions[{CurrentSessionNum}].SessionType";
 
 #[derive(Debug, Serialize, Clone, PartialEq, EnumIter)]
 pub enum SessionType {
@@ -90,19 +97,28 @@ pub struct SimMonitor {
     iracing: iracing_client::Client,
     mqtt: Option<AsyncClient>,
     last_state: Option<SimMonitorState>,
-    mqtt_topic: String,
+    attributes_config: BTreeMap<String, BTreeMap<String, String>>,
+    /// Latest full session info document, kept for re-projection on config changes.
+    session_info: Option<serde_json::Value>,
+    /// Last published payload per attribute group, used to skip redundant publishes.
+    last_attributes: BTreeMap<String, serde_json::Map<String, serde_json::Value>>,
 
     mqtt_eventloop_handle: Option<tokio::task::JoinHandle<()>>,
     mqtt_eventloop: Option<rumqttc::EventLoop>,
 }
 
 impl SimMonitor {
-    pub fn new(mqtt_config: Option<MqttConfig>) -> Self {
+    pub fn new(
+        mqtt_config: Option<MqttConfig>,
+        attributes_config: BTreeMap<String, BTreeMap<String, String>>,
+    ) -> Self {
         let mut monitor = Self {
             iracing: iracing_client::Client::new(),
             mqtt: None,
             last_state: None,
-            mqtt_topic: STATE_TOPIC.to_string(),
+            attributes_config,
+            session_info: None,
+            last_attributes: BTreeMap::new(),
             mqtt_eventloop_handle: None,
             mqtt_eventloop: None,
         };
@@ -116,6 +132,9 @@ impl SimMonitor {
             log::debug!("Aborting MQTT event loop");
             handle.abort();
         }
+
+        // Force a fresh publish of all attribute groups on the (re)configured connection
+        self.last_attributes.clear();
 
         let Some(mqtt_config) = mqtt_config else {
             log::debug!("Disabling MQTT");
@@ -168,8 +187,9 @@ impl SimMonitor {
             log::debug!("MQTT client set up.");
 
             // Register the device
+            let attribute_groups: Vec<String> = self.attributes_config.keys().cloned().collect();
             if let Some(mqtt) = self.mqtt.as_mut() {
-                if let Err(e) = register_device(mqtt).await {
+                if let Err(e) = register_device(mqtt, &attribute_groups).await {
                     log::warn!("Failed to register MQTT device ({e})");
                 }
                 // Add a small delay to ensure registration is processed
@@ -184,10 +204,9 @@ impl SimMonitor {
         if Some(state) != self.last_state.as_ref() {
             if let Some(mqtt) = self.mqtt.as_mut() {
                 let payload = serde_json::to_string(&state)?;
-                let topic = self.mqtt_topic.clone();
                 log::debug!(
                     "Attempting to publish to topic: {} with payload: {}",
-                    &self.mqtt_topic,
+                    STATE_TOPIC,
                     &payload
                 );
 
@@ -197,7 +216,7 @@ impl SimMonitor {
                 tokio::spawn(async move {
                     match tokio::time::timeout(
                         Duration::from_secs(5), // 5 second timeout
-                        mqtt_clone.publish(&topic, QoS::AtLeastOnce, false, payload),
+                        mqtt_clone.publish(STATE_TOPIC, QoS::AtLeastOnce, false, payload),
                     )
                     .await
                     {
@@ -217,52 +236,74 @@ impl SimMonitor {
                     }
                 });
                 self.last_state = Some(state_clone);
-
-                // Publish attributes
-                // let attributes_json = serde_json::json!({
-                //     // "icon_color": "#FF0000",
-                //     // "color": "red",
-                //     // "entity-color": "#FF0000",
-                //     "icon": "mdi:racing-helmet",
-                // });
-                // let attributes_topic = "homeassistant/sensor/iracing/attributes";
-                // let mqtt_clone = mqtt.clone();
-                // tokio::spawn(async move {
-                //     match mqtt_clone.publish(
-                //         attributes_topic,
-                //         QoS::AtLeastOnce,
-                //         false,
-                //         serde_json::to_string(&attributes_json).unwrap(),
-                //     ).await {
-                //         Ok(_) => {
-                //             log::debug!("Successfully published attributes via MQTT");
-                //         }
-                //         Err(e) => {
-                //             log::warn!("Failed to publish attributes via MQTT: {}", e);
-                //         }
-                //     }
-                // });
             } else {
                 log::debug!("Unable to publish state to MQTT, missing MQTT config");
             }
         }
+        self.publish_attributes().await;
         Ok(())
+    }
+
+    /// Projects the session info document into the configured attribute groups and
+    /// publishes each changed group as retained JSON to `iracing/<group>`.
+    async fn publish_attributes(&mut self) {
+        let Some(mqtt) = self.mqtt.clone() else {
+            return;
+        };
+        let Some(info) = self.session_info.as_ref() else {
+            return;
+        };
+
+        for (group, fields) in &self.attributes_config {
+            let payload: serde_json::Map<String, serde_json::Value> = fields
+                .iter()
+                .filter_map(|(name, path)| {
+                    resolve_path(info, path).map(|value| (name.clone(), value))
+                })
+                .collect();
+
+            if self.last_attributes.get(group) == Some(&payload) {
+                continue;
+            }
+
+            let mut full = payload.clone();
+            full.insert(
+                "timestamp".to_string(),
+                Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true).into(),
+            );
+            let topic = format!("{TOPIC_PREFIX}/{group}");
+            let json = serde_json::Value::Object(full).to_string();
+            log::debug!("Publishing attributes to {topic}: {json}");
+            match mqtt.publish(&topic, QoS::AtLeastOnce, true, json).await {
+                Ok(()) => {
+                    self.last_attributes.insert(group.clone(), payload);
+                }
+                Err(e) => {
+                    log::warn!("Failed to publish attributes to {topic}: {e}");
+                }
+            }
+        }
     }
 
     async fn get_current_state(&mut self) -> SimMonitorState {
         match self.iracing.get_current_session_state().await {
-            Some(session_state) => {
-                log::debug!("Found session_type: {}", session_state.session_type);
+            Some(mut session_state) => {
+                if let Some(info) = session_state.session_info.take() {
+                    self.session_info = Some(info);
+                }
 
-                // Convert the string to SessionType
-                let session_type_enum = match session_state.session_type.as_str() {
-                    "Practice" => SessionType::Practice,
-                    "Qualify" => SessionType::Qualify,
-                    "Race" => SessionType::Race,
-                    "Lone Qualify" => SessionType::LoneQualify,
-                    "Offline Testing" => SessionType::OfflineTesting,
+                let session_type = self
+                    .session_info
+                    .as_ref()
+                    .and_then(|doc| resolve_path(doc, SESSION_TYPE_PATH));
+                let session_type_enum = match session_type.as_ref().and_then(|v| v.as_str()) {
+                    Some("Practice") => SessionType::Practice,
+                    Some("Qualify") => SessionType::Qualify,
+                    Some("Race") => SessionType::Race,
+                    Some("Lone Qualify") => SessionType::LoneQualify,
+                    Some("Offline Testing") => SessionType::OfflineTesting,
                     unknown => {
-                        log::warn!("Unknown session type received: {}", unknown);
+                        log::warn!("Unknown session type received: {:?}", unknown);
                         SessionType::Disconnected
                     }
                 };
@@ -315,10 +356,80 @@ impl Drop for SimMonitor {
     }
 }
 
-async fn register_device(mqtt: &mut AsyncClient) -> Result<()> {
-    // homeassistant/sensor/hp_1231232/config
-    // <discovery_prefix>/<component>/[<node_id>/]<object_id>/config
-    // Best practice for entities with a unique_id is to set <object_id> to unique_id and omit the <node_id>.
+/// Resolves a path like `SessionInfo.Sessions[{CurrentSessionNum}].SessionType` against
+/// a JSON document. `[N]` indexes arrays; `[{Other.Path}]` resolves the index from
+/// elsewhere in the same document.
+fn resolve_path(root: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
+    let mut current = root;
+    for segment in split_segments(path) {
+        let (key, indices) = split_indices(segment)?;
+        if !key.is_empty() {
+            current = current.get(key)?;
+        }
+        for index in indices {
+            let idx = match index.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+                Some(inner) => resolve_path(root, inner)?.as_u64()? as usize,
+                None => index.parse::<usize>().ok()?,
+            };
+            current = current.get(idx)?;
+        }
+    }
+    Some(current.clone())
+}
+
+/// Splits a path on `.` separators, ignoring dots inside `[...]`.
+fn split_segments(path: &str) -> Vec<&str> {
+    let mut segments = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0;
+    for (i, c) in path.char_indices() {
+        match c {
+            '[' => depth += 1,
+            ']' => depth = depth.saturating_sub(1),
+            '.' if depth == 0 => {
+                segments.push(&path[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    segments.push(&path[start..]);
+    segments
+}
+
+/// Splits `Key[a][b]` into `("Key", ["a", "b"])`, `None` on malformed brackets.
+fn split_indices(segment: &str) -> Option<(&str, Vec<&str>)> {
+    let key_end = segment.find('[').unwrap_or(segment.len());
+    let key = &segment[..key_end];
+    let mut indices = Vec::new();
+    let mut rest = &segment[key_end..];
+    while !rest.is_empty() {
+        let inner = rest.strip_prefix('[')?;
+        let mut depth = 1usize;
+        let mut end = None;
+        for (i, c) in inner.char_indices() {
+            match c {
+                '[' => depth += 1,
+                ']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let end = end?;
+        indices.push(&inner[..end]);
+        rest = &inner[end + 1..];
+    }
+    Some((key, indices))
+}
+
+async fn register_device(mqtt: &mut AsyncClient, attribute_groups: &[String]) -> Result<()> {
+    // Device-based discovery: a single retained payload at
+    // homeassistant/device/<id>/config describing every sensor as a component.
 
     // Get all session types as strings using serde serialization
     let options: Vec<String> = SessionType::iter()
@@ -331,67 +442,94 @@ async fn register_device(mqtt: &mut AsyncClient) -> Result<()> {
         })
         .collect();
 
-    let device = serde_json::json!({
-        "identifiers": "my_unique_id",
-        "name": "iRacing Simulator",
+    let mut components = serde_json::Map::new();
+    components.insert(
+        "session_type".to_string(),
+        serde_json::json!({
+            "platform": "sensor",
+            "name": "Session type",
+            "state_topic": STATE_TOPIC,
+            "value_template": "{{ value_json.current_session_type }}",
+            "unique_id": "iracing_session_type",
+            "expire_after": 30,
+            "icon": "mdi:racing-helmet",
+            "device_class": "enum",
+            "options": options,
+        }),
+    );
+    components.insert(
+        "session_time_remaining".to_string(),
+        serde_json::json!({
+            "platform": "sensor",
+            "name": "Session time remaining",
+            "state_topic": STATE_TOPIC,
+            // null renders to 'None', which resets the sensor to unknown (HA >= 2025.1)
+            "value_template": "{{ value_json.session_time_remaining }}",
+            "unique_id": "iracing_session_time_remaining",
+            "expire_after": 30,
+            "icon": "mdi:timer-outline",
+            "device_class": "duration",
+            "unit_of_measurement": "s",
+        }),
+    );
+    components.insert(
+        "session_end_time".to_string(),
+        serde_json::json!({
+            "platform": "sensor",
+            "name": "Session end time",
+            "state_topic": STATE_TOPIC,
+            // null renders to 'None', which resets the sensor to unknown (HA >= 2025.1)
+            "value_template": "{{ value_json.session_end_time }}",
+            "unique_id": "iracing_session_end_time",
+            "expire_after": 30,
+            "icon": "mdi:flag-checkered",
+            "device_class": "timestamp",
+        }),
+    );
+
+    // One sensor per attribute group: state is the last update time, the
+    // group's fields are exposed as attributes via json_attributes_topic.
+    for group in attribute_groups {
+        let mut chars = group.chars();
+        let Some(first) = chars.next() else { continue };
+        let display_name = format!("{}{}", first.to_uppercase(), chars.as_str());
+        let topic = format!("{TOPIC_PREFIX}/{group}");
+        components.insert(
+            group.clone(),
+            serde_json::json!({
+                "platform": "sensor",
+                "name": display_name,
+                "state_topic": topic,
+                "value_template": "{{ value_json.timestamp }}",
+                "device_class": "timestamp",
+                "json_attributes_topic": topic,
+                "unique_id": format!("iracing_{group}"),
+                "icon": "mdi:car-info",
+            }),
+        );
+    }
+
+    let config = serde_json::json!({
+        "device": {
+            "identifiers": ["iracing_ha_monitor"],
+            "name": "iRacing Simulator",
+            "sw_version": env!("CARGO_PKG_VERSION"),
+        },
+        "origin": {
+            "name": "iracing-ha-monitor",
+            "sw_version": env!("CARGO_PKG_VERSION"),
+        },
+        "components": components,
     });
 
-    let sensors = [
-        (
-            "homeassistant/sensor/iracing/config",
-            serde_json::json!({
-                "name": "Session type",
-                "state_topic": STATE_TOPIC,
-                "value_template": "{{ value_json.current_session_type }}",
-                "unique_id": "iracing_session_type",
-                "expire_after": 30,
-                "icon": "mdi:racing-helmet",
-                "device_class": "enum",
-                "options": options,
-                "device": device,
-            }),
-        ),
-        (
-            "homeassistant/sensor/iracing_session_time_remaining/config",
-            serde_json::json!({
-                "name": "Session time remaining",
-                "state_topic": STATE_TOPIC,
-                // renders to None for untimed sessions, which Home Assistant treats as unknown
-                "value_template": "{{ value_json.session_time_remaining }}",
-                "unique_id": "iracing_session_time_remaining",
-                "expire_after": 30,
-                "icon": "mdi:timer-outline",
-                "device_class": "duration",
-                "unit_of_measurement": "s",
-                "device": device,
-            }),
-        ),
-        (
-            "homeassistant/sensor/iracing_session_end_time/config",
-            serde_json::json!({
-                "name": "Session end time",
-                "state_topic": STATE_TOPIC,
-                // renders to None for untimed sessions, which Home Assistant treats as unknown
-                "value_template": "{{ value_json.session_end_time }}",
-                "unique_id": "iracing_session_end_time",
-                "expire_after": 30,
-                "icon": "mdi:flag-checkered",
-                "device_class": "timestamp",
-                "device": device,
-            }),
-        ),
-    ];
-
-    for (configuration_topic, config) in sensors {
-        mqtt.publish(
-            configuration_topic,
-            QoS::AtLeastOnce,
-            true,
-            serde_json::to_string(&config)?,
-        )
-        .await
-        .context("Failed to publish MQTT discovery configuration")?;
-    }
+    mqtt.publish(
+        DISCOVERY_TOPIC,
+        QoS::AtLeastOnce,
+        true,
+        serde_json::to_string(&config)?,
+    )
+    .await
+    .context("Failed to publish MQTT discovery configuration")?;
 
     log::info!("Registered device with Home Assistant.");
     Ok(())
@@ -433,8 +571,12 @@ impl std::fmt::Display for Event {
 
 pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
     // Create the monitor
+    let attributes_config = config
+        .as_ref()
+        .map(|c| c.attributes.clone())
+        .unwrap_or_default();
     let mqtt_config = config.and_then(|c| if c.mqtt_enabled { Some(c.mqtt) } else { None });
-    let mut monitor = SimMonitor::new(mqtt_config);
+    let mut monitor = SimMonitor::new(mqtt_config, attributes_config);
 
     iced_stream::channel(100, |mut output| async move {
         // Create channel
@@ -464,6 +606,11 @@ pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
                     match input {
                         Message::UpdateConfig(config) => {
                             log::debug!("Received config update");
+                            if monitor.attributes_config != config.attributes {
+                                monitor.attributes_config = config.attributes.clone();
+                                // Re-publish all groups with the new projection
+                                monitor.last_attributes.clear();
+                            }
                             if config.mqtt_enabled {
                                 log::info!("Updating mqtt config");
                                 monitor.set_mqtt_config(Some(config.mqtt));
@@ -503,4 +650,86 @@ pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_path;
+    use serde_json::json;
+
+    fn doc() -> serde_json::Value {
+        json!({
+            "CurrentSessionNum": 1,
+            "WeekendInfo": { "TrackDisplayName": "Mock Raceway" },
+            "SessionInfo": {
+                "Sessions": [
+                    { "SessionNum": 0, "SessionType": "Practice" },
+                    { "SessionNum": 1, "SessionType": "Race" },
+                ],
+            },
+            "DriverInfo": {
+                "DriverCarIdx": 1,
+                "Drivers": [
+                    { "UserName": "Other Driver" },
+                    { "UserName": "Mock Driver" },
+                ],
+            },
+        })
+    }
+
+    #[test]
+    fn resolves_plain_keys() {
+        assert_eq!(
+            resolve_path(&doc(), "WeekendInfo.TrackDisplayName"),
+            Some(json!("Mock Raceway"))
+        );
+    }
+
+    #[test]
+    fn resolves_literal_index() {
+        assert_eq!(
+            resolve_path(&doc(), "SessionInfo.Sessions[0].SessionType"),
+            Some(json!("Practice"))
+        );
+    }
+
+    #[test]
+    fn resolves_dynamic_index() {
+        assert_eq!(
+            resolve_path(
+                &doc(),
+                "SessionInfo.Sessions[{CurrentSessionNum}].SessionType"
+            ),
+            Some(json!("Race"))
+        );
+        assert_eq!(
+            resolve_path(
+                &doc(),
+                "DriverInfo.Drivers[{DriverInfo.DriverCarIdx}].UserName"
+            ),
+            Some(json!("Mock Driver"))
+        );
+    }
+
+    #[test]
+    fn resolves_whole_subtree() {
+        assert_eq!(
+            resolve_path(&doc(), "DriverInfo.Drivers"),
+            Some(json!([
+                { "UserName": "Other Driver" },
+                { "UserName": "Mock Driver" },
+            ]))
+        );
+    }
+
+    #[test]
+    fn missing_or_malformed_paths_return_none() {
+        assert_eq!(resolve_path(&doc(), "WeekendInfo.Nope"), None);
+        assert_eq!(
+            resolve_path(&doc(), "SessionInfo.Sessions[9].SessionType"),
+            None
+        );
+        assert_eq!(resolve_path(&doc(), "SessionInfo.Sessions[oops]"), None);
+        assert_eq!(resolve_path(&doc(), "SessionInfo.Sessions[0"), None);
+    }
 }

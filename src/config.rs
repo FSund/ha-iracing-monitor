@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -29,6 +30,9 @@ enum ConfigError {
 pub struct AppConfig {
     pub mqtt: MqttConfig,
     pub mqtt_enabled: bool,
+    /// Attribute groups published as `iracing/<group>`: group -> (attribute name -> session info path).
+    #[serde(default)]
+    pub attributes: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl AppConfig {

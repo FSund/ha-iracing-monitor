@@ -2,9 +2,10 @@ pub use async_trait::async_trait;
 
 #[derive(Debug, Clone)]
 pub struct SessionState {
-    pub session_type: String,
     /// Seconds left in the current session, `None` for untimed sessions.
     pub time_remaining: Option<f64>,
+    /// Full session info document as JSON, `None` when unchanged since the last poll.
+    pub session_info: Option<serde_json::Value>,
 }
 
 #[async_trait]

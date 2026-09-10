@@ -2,6 +2,15 @@
 
 Monitors iRacing session state and sends it to Home Assistant via MQTT.
 
+## Home Assistant
+
+Requires **Home Assistant 2025.1 or newer**:
+
+- Entities are registered via [MQTT device-based discovery](https://www.home-assistant.io/integrations/mqtt/#device-discovery-payload) (introduced in HA 2024.6).
+- Untimed sessions reset the session time/end time sensors to `unknown` by publishing a `None` state, which HA supports for non-numeric sensors since 2025.1.
+
+State is published to `iracing/state`, and configurable session-info attribute groups (see [config.toml](config.toml)) are published as retained JSON to `iracing/<group>`.
+
 ## Requirements
 
 Uses the [winresource](https://crates.io/crates/winresource) crate to set the icon for the executable, which requires `windres.exe` and `ar.exe` from [mingw-w64](https://www.mingw-w64.org/) (this is probably not required when we use the Wix Toolset).
