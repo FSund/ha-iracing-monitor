@@ -10,21 +10,24 @@ use tray_icon::{menu::MenuEvent, TrayIcon, TrayIconBuilder};
 
 struct SimTrayIcon {
     tray_icon: TrayIcon,
-    session_type: Option<sim_monitor::SessionType>,
+    connected: bool,
+    session_type: Option<String>,
 }
 
 impl SimTrayIcon {
     fn new() -> Self {
         Self {
             tray_icon: new_tray_icon(),
+            connected: false,
             session_type: None,
         }
     }
 
-    fn update_icon(&mut self, session_type: &sim_monitor::SessionType) {
-        let icon = match session_type {
-            sim_monitor::SessionType::Disconnected => load_icon_disconnected(),
-            _ => load_icon_connected(),
+    fn update_icon(&mut self) {
+        let icon = if self.connected {
+            load_icon_connected()
+        } else {
+            load_icon_disconnected()
         };
         if let Ok(icon) = icon {
             if let Err(e) = self.tray_icon.set_icon(Some(icon)) {
@@ -35,17 +38,27 @@ impl SimTrayIcon {
         }
     }
 
-    fn update_menu(&mut self, session_type: &sim_monitor::SessionType) {
-        let new_menu = make_menu(Some(session_type.to_string()));
+    fn update_menu(&mut self) {
+        let label = if self.connected {
+            self.session_type.as_deref().unwrap_or("Unknown")
+        } else {
+            "Disconnected"
+        };
+        let new_menu = make_menu(Some(label.to_string()));
         self.tray_icon.set_menu(Some(Box::new(new_menu)));
     }
 
-    fn update_session_state(&mut self, new_state: sim_monitor::SessionType) {
-        let old_state = self.session_type.replace(new_state.clone());
-        if old_state.as_ref() != Some(&new_state) {
-            log::debug!("Received new session state: {:?}", new_state);
-            self.update_icon(&new_state);
-            self.update_menu(&new_state);
+    fn update_session_state(&mut self, state: &sim_monitor::SimMonitorState) {
+        if self.connected != state.connected || self.session_type != state.current_session_type {
+            log::debug!(
+                "Received new session state: connected={}, session_type={:?}",
+                state.connected,
+                state.current_session_type
+            );
+            self.connected = state.connected;
+            self.session_type = state.current_session_type.clone();
+            self.update_icon();
+            self.update_menu();
         }
     }
 }
@@ -58,7 +71,7 @@ pub trait TrayIconInterface {
 // Implement for MyTrayIcon (Windows/macOS)
 impl TrayIconInterface for SimTrayIcon {
     fn update_state(&mut self, state: sim_monitor::SimMonitorState) {
-        self.update_session_state(state.current_session_type);
+        self.update_session_state(&state);
     }
 
     fn shutdown(&mut self) {
@@ -115,7 +128,7 @@ pub fn create_tray_icon() -> Box<dyn TrayIconInterface> {
 
                 // Check for new states
                 if let Ok(state) = rx.try_recv() {
-                    tray_icon.update_session_state(state.current_session_type);
+                    tray_icon.update_session_state(&state);
                 }
 
                 std::thread::sleep(std::time::Duration::from_millis(10));

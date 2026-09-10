@@ -1,11 +1,10 @@
-use crate::iracing_client::{SessionState, SimClient}; // Make sure to import the trait
+use crate::config::TelemetrySensor;
+use crate::iracing_client::{SessionState, SimClient};
 use simetry::iracing;
+use std::collections::BTreeMap;
 use std::time::Duration;
 use tokio::time::timeout;
 use yaml_rust::Yaml;
-
-/// iRacing reports one week of remaining time for untimed sessions.
-const UNLIMITED_TIME: f64 = 604_800.0;
 
 pub struct IracingClient {
     client: Option<iracing::Client>,
@@ -62,6 +61,36 @@ fn yaml_to_json(yaml: &Yaml) -> serde_json::Value {
     }
 }
 
+/// Schema-agnostic conversion of a telemetry value into JSON.
+fn value_to_json(value: iracing::Value) -> serde_json::Value {
+    use iracing::Value;
+    match value {
+        Value::Char(c) => c.into(),
+        Value::Bool(b) => b.into(),
+        Value::Int(i) => i.into(),
+        Value::BitField(b) => b.into(),
+        Value::Float(f) => f64::from(f).into(),
+        Value::Double(d) => d.into(),
+    }
+}
+
+/// Reads one configured telemetry variable, `null` when unavailable.
+fn read_telemetry(sim_state: &iracing::SimState, variable: &str) -> serde_json::Value {
+    let value = sim_state
+        .read_name::<iracing::Value>(variable)
+        .map(value_to_json)
+        .unwrap_or(serde_json::Value::Null);
+    // iRacing reports one week of remaining time for untimed sessions
+    if variable == "SessionTimeRemain"
+        && !value
+            .as_f64()
+            .is_some_and(|v| v.is_finite() && (0.0..iracing::UNLIMITED_TIME).contains(&v))
+    {
+        return serde_json::Value::Null;
+    }
+    value
+}
+
 #[async_trait::async_trait]
 impl SimClient for IracingClient {
     fn new() -> Self {
@@ -72,7 +101,10 @@ impl SimClient for IracingClient {
         }
     }
 
-    async fn get_current_session_state(&mut self) -> Option<SessionState> {
+    async fn get_current_session_state(
+        &mut self,
+        telemetry: &BTreeMap<String, TelemetrySensor>,
+    ) -> Option<SessionState> {
         if !self.connect().await {
             return None;
         }
@@ -91,11 +123,13 @@ impl SimClient for IracingClient {
             }
         };
         let session_info = sim_state.session_info();
+        // SessionNum is structural: it drives change detection and `[{CurrentSessionNum}]` paths
         let session_num = sim_state.read_name::<i32>("SessionNum")?;
 
-        let time_remaining = sim_state
-            .read_name::<f64>("SessionTimeRemain")
-            .filter(|remaining| remaining.is_finite() && (0.0..UNLIMITED_TIME).contains(remaining));
+        let telemetry_values = telemetry
+            .iter()
+            .map(|(id, sensor)| (id.clone(), read_telemetry(&sim_state, &sensor.variable)))
+            .collect();
 
         let session_info_json = if self.last_session_info.as_ref() != Some(session_info)
             || self.last_session_num != Some(session_num)
@@ -113,7 +147,7 @@ impl SimClient for IracingClient {
         };
 
         Some(SessionState {
-            time_remaining,
+            telemetry: telemetry_values,
             session_info: session_info_json,
         })
     }

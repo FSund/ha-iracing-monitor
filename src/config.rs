@@ -33,6 +33,22 @@ pub struct AppConfig {
     /// Attribute groups published as `iracing/<group>`: group -> (attribute name -> session info path).
     #[serde(default)]
     pub attributes: BTreeMap<String, BTreeMap<String, String>>,
+    /// Telemetry sensors published in the `iracing/state` payload: sensor id -> definition.
+    #[serde(default)]
+    pub telemetry: BTreeMap<String, TelemetrySensor>,
+}
+
+/// A Home Assistant sensor backed by an iRacing telemetry variable.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct TelemetrySensor {
+    /// iRacing telemetry variable name, e.g. `SessionTimeRemain`.
+    pub variable: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_class: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 impl AppConfig {

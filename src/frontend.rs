@@ -314,7 +314,14 @@ impl IracingMonitorGui {
             text(format!(
                 "Session type: {}",
                 if let Some(sim_state) = &self.sim_state {
-                    sim_state.current_session_type.clone().to_string()
+                    if sim_state.connected {
+                        sim_state
+                            .current_session_type
+                            .clone()
+                            .unwrap_or_else(|| "Unknown".to_string())
+                    } else {
+                        "Disconnected".to_string()
+                    }
                 } else {
                     "None".to_string()
                 }

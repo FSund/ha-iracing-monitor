@@ -1,62 +1,43 @@
 use crate::config;
-use crate::config::AppConfig;
+use crate::config::{AppConfig, TelemetrySensor};
 use crate::iracing_client;
 
 use anyhow::{Context, Result};
-use chrono::{SecondsFormat, TimeDelta, Utc};
+use chrono::{SecondsFormat, Utc};
 use futures::channel::mpsc;
 use futures::prelude::sink::SinkExt;
 use futures::prelude::stream::StreamExt;
 use futures::stream::Stream;
 use iced_futures::stream as iced_stream;
 use iracing_client::SimClient;
-use rumqttc::{AsyncClient, MqttOptions, QoS};
+use rumqttc::{AsyncClient, LastWill, MqttOptions, QoS};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fmt::{Display, Formatter};
 use std::time::Duration;
-use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
 
 /// All data topics live under this prefix: `iracing/state` and `iracing/<group>`.
 const TOPIC_PREFIX: &str = "iracing";
 const STATE_TOPIC: &str = "iracing/state";
+/// Retained `online`/`offline`; shared by all sensors via discovery, `offline` set as LWT.
+const AVAILABILITY_TOPIC: &str = "iracing/availability";
 /// Device-based discovery: one payload describing all sensors.
 const DISCOVERY_TOPIC: &str = "homeassistant/device/iracing/config";
 /// Where the current session type lives in the session info document.
 const SESSION_TYPE_PATH: &str = "SessionInfo.Sessions[{CurrentSessionNum}].SessionType";
 
-#[derive(Debug, Serialize, Clone, PartialEq, EnumIter)]
-pub enum SessionType {
-    // Unknown,
-    Disconnected,
-    Practice,
-    Qualify,
-    Race,
-    #[serde(rename = "Lone Qualify")]
-    LoneQualify,
-    #[serde(rename = "Offline Testing")]
-    OfflineTesting,
-}
-
-impl Display for SessionType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        // Use serde serialization to ensure Display matches JSON output
-        let json_value = serde_json::to_value(self).unwrap();
-        write!(f, "{}", json_value.as_str().unwrap())
-    }
-}
-
+/// Internal monitor state; only `telemetry` and `timestamp` are published to MQTT.
 #[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct SimMonitorState {
+    /// Signaled to Home Assistant via the availability topic, not the payload.
+    #[serde(skip)]
     pub connected: bool,
-    // in_session: bool,
-    pub current_session_type: SessionType,
-    // session_state: String,
-    /// Seconds left in the current session, `None` for untimed sessions.
-    pub session_time_remaining: Option<i64>,
-    /// RFC3339 timestamp of when the current session is scheduled to end.
-    pub session_end_time: Option<String>,
+    /// For the tray/frontend; Home Assistant gets it via the attribute groups.
+    #[serde(skip)]
+    pub current_session_type: Option<String>,
+    /// Values for the configured telemetry sensors, flattened into the payload.
+    /// `null` values reset the corresponding sensor to unknown in Home Assistant.
+    #[serde(flatten)]
+    pub telemetry: serde_json::Map<String, serde_json::Value>,
     pub timestamp: String,
 }
 
@@ -64,11 +45,8 @@ impl Default for SimMonitorState {
     fn default() -> Self {
         Self {
             connected: false,
-            // in_session: false,
-            current_session_type: SessionType::Disconnected,
-            // session_state: "None".to_string(),
-            session_time_remaining: None,
-            session_end_time: None,
+            current_session_type: None,
+            telemetry: serde_json::Map::new(),
             timestamp: Utc::now().to_rfc3339(),
         }
     }
@@ -98,10 +76,13 @@ pub struct SimMonitor {
     mqtt: Option<AsyncClient>,
     last_state: Option<SimMonitorState>,
     attributes_config: BTreeMap<String, BTreeMap<String, String>>,
+    telemetry_config: BTreeMap<String, TelemetrySensor>,
     /// Latest full session info document, kept for re-projection on config changes.
     session_info: Option<serde_json::Value>,
     /// Last published payload per attribute group, used to skip redundant publishes.
     last_attributes: BTreeMap<String, serde_json::Map<String, serde_json::Value>>,
+    /// Last published availability, used to skip redundant publishes.
+    last_availability: Option<bool>,
 
     mqtt_eventloop_handle: Option<tokio::task::JoinHandle<()>>,
     mqtt_eventloop: Option<rumqttc::EventLoop>,
@@ -111,14 +92,17 @@ impl SimMonitor {
     pub fn new(
         mqtt_config: Option<MqttConfig>,
         attributes_config: BTreeMap<String, BTreeMap<String, String>>,
+        telemetry_config: BTreeMap<String, TelemetrySensor>,
     ) -> Self {
         let mut monitor = Self {
             iracing: iracing_client::Client::new(),
             mqtt: None,
             last_state: None,
             attributes_config,
+            telemetry_config,
             session_info: None,
             last_attributes: BTreeMap::new(),
+            last_availability: None,
             mqtt_eventloop_handle: None,
             mqtt_eventloop: None,
         };
@@ -135,6 +119,7 @@ impl SimMonitor {
 
         // Force a fresh publish of all attribute groups on the (re)configured connection
         self.last_attributes.clear();
+        self.last_availability = None;
 
         let Some(mqtt_config) = mqtt_config else {
             log::debug!("Disabling MQTT");
@@ -146,6 +131,13 @@ impl SimMonitor {
             MqttOptions::new("iracing-monitor", mqtt_config.host, mqtt_config.port);
         mqtt_options.set_keep_alive(Duration::from_secs(5));
         mqtt_options.set_credentials(mqtt_config.user, mqtt_config.password);
+        // Mark all sensors unavailable if the app dies without disconnecting cleanly
+        mqtt_options.set_last_will(LastWill::new(
+            AVAILABILITY_TOPIC,
+            "offline",
+            QoS::AtLeastOnce,
+            true,
+        ));
         let (mqtt_client, mqtt_eventloop) = AsyncClient::new(mqtt_options, 10);
 
         // Store the client and event loop
@@ -188,8 +180,9 @@ impl SimMonitor {
 
             // Register the device
             let attribute_groups: Vec<String> = self.attributes_config.keys().cloned().collect();
+            let telemetry_config = self.telemetry_config.clone();
             if let Some(mqtt) = self.mqtt.as_mut() {
-                if let Err(e) = register_device(mqtt, &attribute_groups).await {
+                if let Err(e) = register_device(mqtt, &attribute_groups, &telemetry_config).await {
                     log::warn!("Failed to register MQTT device ({e})");
                 }
                 // Add a small delay to ensure registration is processed
@@ -201,6 +194,7 @@ impl SimMonitor {
     }
 
     async fn publish_state(&mut self, state: &SimMonitorState) -> Result<()> {
+        self.publish_availability(state.connected).await;
         if Some(state) != self.last_state.as_ref() {
             if let Some(mqtt) = self.mqtt.as_mut() {
                 let payload = serde_json::to_string(&state)?;
@@ -242,6 +236,28 @@ impl SimMonitor {
         }
         self.publish_attributes().await;
         Ok(())
+    }
+
+    /// Publishes retained `online`/`offline`, flipping every sensor's availability in HA.
+    async fn publish_availability(&mut self, connected: bool) {
+        if self.last_availability == Some(connected) {
+            return;
+        }
+        let Some(mqtt) = self.mqtt.as_ref() else {
+            return;
+        };
+        let payload = if connected { "online" } else { "offline" };
+        match mqtt
+            .publish(AVAILABILITY_TOPIC, QoS::AtLeastOnce, true, payload)
+            .await
+        {
+            Ok(()) => {
+                self.last_availability = Some(connected);
+            }
+            Err(e) => {
+                log::warn!("Failed to publish availability: {e}");
+            }
+        }
     }
 
     /// Projects the session info document into the configured attribute groups and
@@ -286,7 +302,11 @@ impl SimMonitor {
     }
 
     async fn get_current_state(&mut self) -> SimMonitorState {
-        match self.iracing.get_current_session_state().await {
+        match self
+            .iracing
+            .get_current_session_state(&self.telemetry_config)
+            .await
+        {
             Some(mut session_state) => {
                 if let Some(info) = session_state.session_info.take() {
                     self.session_info = Some(info);
@@ -296,38 +316,25 @@ impl SimMonitor {
                     .session_info
                     .as_ref()
                     .and_then(|doc| resolve_path(doc, SESSION_TYPE_PATH));
-                let session_type_enum = match session_type.as_ref().and_then(|v| v.as_str()) {
-                    Some("Practice") => SessionType::Practice,
-                    Some("Qualify") => SessionType::Qualify,
-                    Some("Race") => SessionType::Race,
-                    Some("Lone Qualify") => SessionType::LoneQualify,
-                    Some("Offline Testing") => SessionType::OfflineTesting,
-                    unknown => {
-                        log::warn!("Unknown session type received: {:?}", unknown);
-                        SessionType::Disconnected
-                    }
-                };
-
-                let now = Utc::now();
-                let session_time_remaining =
-                    session_state.time_remaining.map(|seconds| seconds as i64);
-                let session_end_time = session_time_remaining.map(|seconds| {
-                    (now + TimeDelta::seconds(seconds)).to_rfc3339_opts(SecondsFormat::Secs, true)
-                });
+                let current_session_type =
+                    session_type.and_then(|v| v.as_str().map(str::to_string));
 
                 SimMonitorState {
                     connected: true,
-                    current_session_type: session_type_enum,
-                    session_time_remaining,
-                    session_end_time,
-                    timestamp: now.to_rfc3339(),
+                    current_session_type,
+                    telemetry: session_state.telemetry,
+                    timestamp: Utc::now().to_rfc3339(),
                 }
             }
             None => SimMonitorState {
                 connected: false,
-                current_session_type: SessionType::Disconnected,
-                session_time_remaining: None,
-                session_end_time: None,
+                current_session_type: None,
+                // Explicit nulls reset the telemetry sensors in Home Assistant
+                telemetry: self
+                    .telemetry_config
+                    .keys()
+                    .map(|id| (id.clone(), serde_json::Value::Null))
+                    .collect(),
                 timestamp: Utc::now().to_rfc3339(),
             },
         }
@@ -427,78 +434,62 @@ fn split_indices(segment: &str) -> Option<(&str, Vec<&str>)> {
     Some((key, indices))
 }
 
-async fn register_device(mqtt: &mut AsyncClient, attribute_groups: &[String]) -> Result<()> {
+/// `session_time_remaining` -> `Session time remaining`.
+fn display_name(id: &str) -> String {
+    let mut chars = id.chars();
+    match chars.next() {
+        Some(first) => format!(
+            "{}{}",
+            first.to_uppercase(),
+            chars.as_str().replace('_', " ")
+        ),
+        None => String::new(),
+    }
+}
+
+async fn register_device(
+    mqtt: &mut AsyncClient,
+    attribute_groups: &[String],
+    telemetry_config: &BTreeMap<String, TelemetrySensor>,
+) -> Result<()> {
     // Device-based discovery: a single retained payload at
     // homeassistant/device/<id>/config describing every sensor as a component.
 
-    // Get all session types as strings using serde serialization
-    let options: Vec<String> = SessionType::iter()
-        .map(|st| {
-            serde_json::to_value(&st)
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .to_string()
-        })
-        .collect();
-
     let mut components = serde_json::Map::new();
-    components.insert(
-        "session_type".to_string(),
-        serde_json::json!({
+
+    // One sensor per configured telemetry entry, read from the state payload.
+    for (id, sensor) in telemetry_config {
+        let mut component = serde_json::json!({
             "platform": "sensor",
-            "name": "Session type",
-            "state_topic": STATE_TOPIC,
-            "value_template": "{{ value_json.current_session_type }}",
-            "unique_id": "iracing_session_type",
-            "expire_after": 30,
-            "icon": "mdi:racing-helmet",
-            "device_class": "enum",
-            "options": options,
-        }),
-    );
-    components.insert(
-        "session_time_remaining".to_string(),
-        serde_json::json!({
-            "platform": "sensor",
-            "name": "Session time remaining",
+            "name": display_name(id),
             "state_topic": STATE_TOPIC,
             // null renders to 'None', which resets the sensor to unknown (HA >= 2025.1)
-            "value_template": "{{ value_json.session_time_remaining }}",
-            "unique_id": "iracing_session_time_remaining",
+            "value_template": format!("{{{{ value_json.{id} }}}}"),
+            "unique_id": format!("iracing_{id}"),
             "expire_after": 30,
-            "icon": "mdi:timer-outline",
-            "device_class": "duration",
-            "unit_of_measurement": "s",
-        }),
-    );
-    components.insert(
-        "session_end_time".to_string(),
-        serde_json::json!({
-            "platform": "sensor",
-            "name": "Session end time",
-            "state_topic": STATE_TOPIC,
-            // null renders to 'None', which resets the sensor to unknown (HA >= 2025.1)
-            "value_template": "{{ value_json.session_end_time }}",
-            "unique_id": "iracing_session_end_time",
-            "expire_after": 30,
-            "icon": "mdi:flag-checkered",
-            "device_class": "timestamp",
-        }),
-    );
+        });
+        let fields = component.as_object_mut().expect("component is an object");
+        if let Some(device_class) = &sensor.device_class {
+            fields.insert("device_class".to_string(), device_class.clone().into());
+        }
+        if let Some(unit) = &sensor.unit {
+            fields.insert("unit_of_measurement".to_string(), unit.clone().into());
+        }
+        if let Some(icon) = &sensor.icon {
+            fields.insert("icon".to_string(), icon.clone().into());
+        }
+        components.insert(id.clone(), component);
+    }
 
     // One sensor per attribute group: state is the last update time, the
     // group's fields are exposed as attributes via json_attributes_topic.
     for group in attribute_groups {
-        let mut chars = group.chars();
-        let Some(first) = chars.next() else { continue };
-        let display_name = format!("{}{}", first.to_uppercase(), chars.as_str());
         let topic = format!("{TOPIC_PREFIX}/{group}");
         components.insert(
             group.clone(),
             serde_json::json!({
                 "platform": "sensor",
-                "name": display_name,
+                "name": display_name(group),
                 "state_topic": topic,
                 "value_template": "{{ value_json.timestamp }}",
                 "device_class": "timestamp",
@@ -519,6 +510,8 @@ async fn register_device(mqtt: &mut AsyncClient, attribute_groups: &[String]) ->
             "name": "iracing-ha-monitor",
             "sw_version": env!("CARGO_PKG_VERSION"),
         },
+        // Shared by all components: sensors show unavailable unless "online"
+        "availability_topic": AVAILABILITY_TOPIC,
         "components": components,
     });
 
@@ -575,8 +568,12 @@ pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
         .as_ref()
         .map(|c| c.attributes.clone())
         .unwrap_or_default();
+    let telemetry_config = config
+        .as_ref()
+        .map(|c| c.telemetry.clone())
+        .unwrap_or_default();
     let mqtt_config = config.and_then(|c| if c.mqtt_enabled { Some(c.mqtt) } else { None });
-    let mut monitor = SimMonitor::new(mqtt_config, attributes_config);
+    let mut monitor = SimMonitor::new(mqtt_config, attributes_config, telemetry_config);
 
     iced_stream::channel(100, |mut output| async move {
         // Create channel
@@ -610,6 +607,11 @@ pub fn connect(config: Option<AppConfig>) -> impl Stream<Item = Event> {
                                 monitor.attributes_config = config.attributes.clone();
                                 // Re-publish all groups with the new projection
                                 monitor.last_attributes.clear();
+                            }
+                            if monitor.telemetry_config != config.telemetry {
+                                monitor.telemetry_config = config.telemetry.clone();
+                                // Force a state republish with the new set of sensors
+                                monitor.last_state = None;
                             }
                             if config.mqtt_enabled {
                                 log::info!("Updating mqtt config");
