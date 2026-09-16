@@ -328,6 +328,18 @@ impl SimMonitor {
                     self.session_info = Some(info);
                 }
 
+                // Sensors with a path-style variable (dotted) are resolved from
+                // the session info document instead of live telemetry.
+                if let Some(info) = self.session_info.as_ref() {
+                    for (id, sensor) in &self.telemetry_config {
+                        if sensor.variable.contains('.') {
+                            let value = resolve_path(info, &sensor.variable)
+                                .unwrap_or(serde_json::Value::Null);
+                            session_state.telemetry.insert(id.clone(), value);
+                        }
+                    }
+                }
+
                 let session_type = self
                     .session_info
                     .as_ref()

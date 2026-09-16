@@ -40,7 +40,8 @@ pub struct AppConfig {
 /// A Home Assistant sensor backed by an iRacing telemetry variable.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct TelemetrySensor {
-    /// iRacing telemetry variable name, e.g. `SessionTimeRemain`.
+    /// iRacing telemetry variable name, e.g. `SessionTimeRemain`, or a dotted
+    /// session info path like `SessionInfo.Sessions[{CurrentSessionNum}].SessionType`.
     pub variable: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_class: Option<String>,

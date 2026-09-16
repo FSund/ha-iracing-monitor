@@ -8,7 +8,8 @@ password = ""
 
 # Live telemetry sensors published in the `iracing/state` JSON payload, each
 # discovered as its own Home Assistant sensor. `variable` is the iRacing
-# telemetry variable name; `device_class`, `unit` and `icon` are optional
+# telemetry variable name, or a dotted session info path (same syntax as
+# `[attributes]` below); `device_class`, `unit` and `icon` are optional
 # Home Assistant metadata. Sensor ids must not collide with the built-in
 # `timestamp` payload field.
 [sensors.session_time_remaining]
